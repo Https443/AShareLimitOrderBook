@@ -6,10 +6,5 @@
 #include "SPMCRingBuffer.h"
 #include "SPMCBroadcastRingBuffer.h"
 #include "MPMCRingBuffer.h"
-#include "SPSCRingBufferZC.h"
-#include "MPSCRingBufferZC.h"
-#include "SPMCRingBufferZC.h"
-#include "SPMCBroadcastRingBufferZC.h"
-#include "MPMCRingBufferZC.h"
 
 #endif

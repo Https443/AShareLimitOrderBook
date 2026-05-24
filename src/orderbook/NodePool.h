@@ -34,10 +34,10 @@ namespace marketdata
 
         // 是否在使用
         bool is_use = false;
+        // 已被撮合
+        bool matched = false;
         // 占位
-        char remark[3] = {0, 0, 0};
-        // 价格档位槽位
-        uint32_t self_slot = INVALID_SLOT;
+        char remark[6] = {0};
         // 价格
         int64_t price = -1;
 
@@ -47,23 +47,36 @@ namespace marketdata
         uint32_t tail_slot = INVALID_SLOT;
         // 总委托量
         int64_t total_volume = 0;
+        // 撮合后的总委托量
+        int64_t match_total_volume = 0;
         // 委托数量
         int32_t order_size = 0;
+        // 撮合后的委托数量
+        int32_t match_order_size = 0;
 
         void reset()
         {
             is_use = false;
-            self_slot = INVALID_SLOT;
+            matched = false;
             price = -1;
             head_slot = INVALID_SLOT;
             tail_slot = INVALID_SLOT;
             total_volume = 0;
+            match_total_volume = 0;
             order_size = 0;
+            match_order_size = 0;
         }
 
         bool empty() const
         {
             return head_slot == INVALID_SLOT;
+        }
+
+        void resetMatchStatus()
+        {
+            matched = false;
+            match_total_volume = total_volume;
+            match_order_size = order_size;
         }
     };
 
@@ -77,21 +90,8 @@ namespace marketdata
         OrderSideType side_type = OrderSideType::NONE;
         // 委托类型
         MarketOrderType order_type = MarketOrderType::NONE;
-        // 占位
-        char remark = 0;
-        // 用于五档即成剩撤统计
-        int levels_count = 0;
-
-        // id
-        int64_t id = -1;
-        // 委托价格
-        int64_t price = -1;
-        // 委托量
-        int64_t volume = -1;
-        // 原始委托量
-        int64_t original_volume = -1;
-        // 委托时间
-        int64_t time = -1;
+        // 已撮合完成
+        bool matched = false;
 
         // 当前订单slot
         uint32_t self_slot = INVALID_SLOT;
@@ -99,24 +99,41 @@ namespace marketdata
         uint32_t prev_slot = INVALID_SLOT;
         // 后一个订单节点slot
         uint32_t next_slot = INVALID_SLOT;
-        // 订单节点所在的价格档位slot
-        uint32_t price_level_slot = INVALID_SLOT;
 
-        void reset_runtime_fields()
+        // id
+        int64_t id = -1;
+        // 委托价格
+        int64_t price = -1;
+        // 委托量
+        int64_t volume = -1;
+        // 剩余委托量
+        int64_t remaining_match_volume = -1;
+        // 委托时间
+        int64_t time = -1;
+
+        // 订单节点所在的价格档位指针
+        PriceLevel *price_level_ptr = nullptr;
+
+        void reset()
         {
             is_use = false;
             side_type = OrderSideType::NONE;
             order_type = MarketOrderType::NONE;
-            remark = 0;
-            levels_count = 0;
+            matched = false;
             id = -1;
             price = -1;
             volume = -1;
-            original_volume = -1;
+            remaining_match_volume = -1;
             time = -1;
             prev_slot = INVALID_SLOT;
             next_slot = INVALID_SLOT;
-            price_level_slot = INVALID_SLOT;
+            price_level_ptr = nullptr;
+        }
+
+        void resetMatchStatus()
+        {
+            matched = false;
+            remaining_match_volume = volume;
         }
     };
 
@@ -278,7 +295,7 @@ namespace marketdata
             for (uint32_t i = 0; i < MAX_ORDER; ++i)
             {
                 nodes[i].self_slot = i;
-                nodes[i].reset_runtime_fields();
+                nodes[i].reset();
                 free_stack[i] = static_cast<uint32_t>(MAX_ORDER - 1 - i);
             }
             free_top = static_cast<uint32_t>(MAX_ORDER);
@@ -306,14 +323,14 @@ namespace marketdata
 
             const uint32_t slot = free_stack[--free_top];
             OrderNode& node = nodes[slot];
-            node.reset_runtime_fields();
+            node.reset();
             node.is_use = true;
             node.id = order_id;
 
             if (!id_index.insert(order_id, slot)) [[unlikely]]
             {
                 free_stack[free_top++] = slot;
-                node.reset_runtime_fields();
+                node.reset();
                 LOG_ERROR(app_log::logger(), "OrderPool: failed to insert id index, id:{}", order_id);
                 return nullptr;
             }
@@ -352,19 +369,19 @@ namespace marketdata
          * @param p 要释放的节点指针
          * @note 重置节点字段并归还到空闲链表头部
          */
-        void free(OrderNode* p, PriceLevel* level_pool)
+        void free(OrderNode* p)
         {
             if (!p) return;
             if (!p->is_use) return;
 
-            if (p->price_level_slot != INVALID_SLOT)
+            if (p->price_level_ptr != nullptr)
             {
-                unlink(level_pool, p);
+                unlink(p);
             }
 
             id_index.erase(p->id);
             const uint32_t slot = p->self_slot;
-            p->reset_runtime_fields();
+            p->reset();
             p->self_slot = slot;
             free_stack[free_top++] = slot;
 
@@ -380,35 +397,34 @@ namespace marketdata
          * @param node 要追加的订单节点指针
          * @note 新订单正常情况下追加到尾部，遵循时间优先原则
          */
-        inline void link(PriceLevel* level_pool, uint32_t level_slot, OrderNode* node)
+        inline void link(PriceLevel* level, OrderNode* node)
         {
-            assert(level_pool != nullptr);
+            assert(level != nullptr);
             assert(node != nullptr);
             assert(node->is_use);
-            assert(level_slot != PriceLevel::INVALID_SLOT);
-
-            PriceLevel& level = level_pool[level_slot];
-            assert(level.is_use);
-            assert(node->price_level_slot == INVALID_SLOT);
 
             const uint32_t slot = node->self_slot;
-            node->prev_slot = level.tail_slot;
+            node->prev_slot = level->tail_slot;
             node->next_slot = INVALID_SLOT;
 
-            if (level.tail_slot == INVALID_SLOT)
+            if (level->tail_slot == INVALID_SLOT)
             {
-                level.head_slot = slot;
-                level.tail_slot = slot;
+                level->head_slot = slot;
+                level->tail_slot = slot;
             }
             else
             {
-                nodes[level.tail_slot].next_slot = slot;
-                level.tail_slot = slot;
+                nodes[level->tail_slot].next_slot = slot;
+                level->tail_slot = slot;
             }
 
-            level.total_volume += node->volume;
-            ++level.order_size;
-            node->price_level_slot = level_slot;
+            level->total_volume += node->volume;
+            level->match_total_volume = level->total_volume;
+
+            ++level->order_size;
+            level->match_order_size = level->order_size;
+
+            node->price_level_ptr = level;
         }
 
         /**
@@ -416,17 +432,16 @@ namespace marketdata
          * @param node 要移除的订单节点指针
          * @note 维护双向链表的连接关系，更新价格档位的总量和订单数
          */
-        inline void unlink(PriceLevel* level_pool, OrderNode* node)
+        inline void unlink(OrderNode* node)
         {
-            assert(level_pool != nullptr);
             assert(node != nullptr);
 
-            if (node->price_level_slot == INVALID_SLOT)
+            if (node->price_level_ptr == nullptr)
             {
                 return;
             }
 
-            PriceLevel& level = level_pool[node->price_level_slot];
+            PriceLevel *level = node->price_level_ptr;
             const uint32_t prev = node->prev_slot;
             const uint32_t next = node->next_slot;
 
@@ -443,24 +458,25 @@ namespace marketdata
             }
 
             // 如果当前OrderNode位于队列的头，则将下一个OrderNode设置为队列头
-            if (level.head_slot == node->self_slot)
+            if (level->head_slot == node->self_slot)
             {
-                level.head_slot = next;
+                level->head_slot = next;
             }
 
             // 如果当前OrderNode位于队列的尾，则将前一个OrderNode设置为队列尾
-            if (level.tail_slot == node->self_slot)
+            if (level->tail_slot == node->self_slot)
             {
-                level.tail_slot = prev;
+                level->tail_slot = prev;
             }
 
             // 修改总volume
-            level.total_volume -= node->volume;
-            --level.order_size;
-
+            level->total_volume -= node->volume;
+            --level->order_size;
+            
             node->prev_slot = INVALID_SLOT;
             node->next_slot = INVALID_SLOT;
-            node->price_level_slot = INVALID_SLOT;
+
+            node->price_level_ptr = nullptr;
         }
 
         void reset()
@@ -468,7 +484,7 @@ namespace marketdata
             for (uint32_t i = 0; i < MAX_ORDER; ++i)
             {
                 nodes[i].self_slot = i;
-                nodes[i].reset_runtime_fields();
+                nodes[i].reset();
                 free_stack[i] = static_cast<uint32_t>(MAX_ORDER - 1 - i);
             }
             free_top = static_cast<uint32_t>(MAX_ORDER);
@@ -506,91 +522,5 @@ namespace marketdata
         size_t count = 0;
         size_t max_count = 0;
         OrderIdIndex id_index;
-    };
-
-    /**
-     * @brief 价格档位内存池
-     * @note 预分配x个价格档位节点，使用slot管理空闲节点
-     */
-    class PriceLevelPool
-    {
-    public:
-        static constexpr size_t MAX_LEVEL = 50'000'000;
-
-        PriceLevelPool()
-        {
-            for (uint32_t i = 0; i < MAX_LEVEL; ++i)
-            {
-                levels[i].self_slot = i;
-                levels[i].reset();
-                free_stack[i] = static_cast<uint32_t>(MAX_LEVEL - 1 - i);
-            }
-            free_top = static_cast<uint32_t>(MAX_LEVEL);
-        }
-
-        PriceLevel* alloc(int64_t price)
-        {
-            if (free_top == 0)
-            {
-                LOG_ERROR(app_log::logger(), "PriceLevelPool: out of max size:{}", MAX_LEVEL);
-                return nullptr;
-            }
-
-            const uint32_t slot = free_stack[--free_top];
-            PriceLevel& level = levels[slot];
-            level.reset();
-            level.is_use = true;
-            level.self_slot = slot;
-            level.price = price;
-            return &level;
-        }
-
-        void free(PriceLevel* p)
-        {
-            if (!p) return;
-            if (!p->is_use) return;
-            if (!p->empty()) return;
-
-            const uint32_t slot = p->self_slot;
-            p->reset();
-            p->self_slot = slot;
-            free_stack[free_top++] = slot;
-        }
-
-        PriceLevel* data()
-        {
-            return levels;
-        }
-
-        const PriceLevel* data() const
-        {
-            return levels;
-        }
-
-        PriceLevel* getBySlot(uint32_t slot)
-        {
-            return (slot < MAX_LEVEL) ? &levels[slot] : nullptr;
-        }
-
-        const PriceLevel* getBySlot(uint32_t slot) const
-        {
-            return (slot < MAX_LEVEL) ? &levels[slot] : nullptr;
-        }
-
-        void reset()
-        {
-            for (uint32_t i = 0; i < MAX_LEVEL; ++i)
-            {
-                levels[i].self_slot = i;
-                levels[i].reset();
-                free_stack[i] = static_cast<uint32_t>(MAX_LEVEL - 1 - i);
-            }
-            free_top = static_cast<uint32_t>(MAX_LEVEL);
-        }
-
-    private:
-        PriceLevel levels[MAX_LEVEL];
-        uint32_t free_stack[MAX_LEVEL];
-        uint32_t free_top = 0;
     };
 }

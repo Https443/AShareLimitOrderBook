@@ -16,151 +16,44 @@
 
 namespace marketdata
 {
-
-    // ====== 基于 std::map 的价格簿（支持升序/降序） ======
-    template<class Comp>
-    class PriceBook
-    {
-    public:
-        PriceBook() = default;
-
-        // 返回（存在则true）并给出level引用；不存在则创建
-        inline PriceLevel* getOrCreate(int64_t price)
-        {
-            auto [it, inserted] = levels.try_emplace(price, PriceLevel{});
-            PriceLevel& level = it->second;
-            level.is_use = true;
-            level.price = price;
-            return &level;
-        }
-
-        inline PriceLevel* find(int64_t price)
-        {
-            auto it = levels.find(price);
-            return (it == levels.end()) ? nullptr : &it->second;
-        }
-
-        inline bool empty() const
-        {
-            // cleanupBest();
-            return levels.empty();
-        }
-
-        // 最优价（买：最大；卖：最小；pending 依你用的方向）
-        inline int64_t bestPrice() const
-        {
-            // cleanupBest(); 
-            return levels.empty() ? 0 : levels.begin()->first;
-        }
-
-        // 删除某价位
-        inline void erase(int64_t price)
-        {
-            auto it = levels.find(price);
-            if (it != levels.end())
-            {
-                levels.erase(it);
-            }
-        }
-
-        inline std::vector<std::pair<int64_t, const PriceLevel*>> topN(int n) const
-        {
-            if (n <= 0)
-            {
-                return {};
-            }
-
-            std::vector<std::pair<int64_t, const PriceLevel*>> out;
-            out.reserve(static_cast<size_t>(n));
-            for (auto it = levels.begin(); it != levels.end() && static_cast<int>(out.size()) < n;)
-            {
-                if (it->second.total_volume <= 0)
-                {
-                    ++it;
-                    continue;
-                }
-
-                out.push_back({it->first, &it->second});
-                ++it;
-            }
-            return out;
-        }
-
-        inline size_t size() const 
-        {
-            return levels.size();
-        }
-
-        void clear()
-        {
-            levels.clear();
-        }
-
-        inline const std::string printPriceVolume(int64_t id, size_t count = 0) const
-        {
-            std::stringstream ss;
-            ss << "id:" << id;
-            if (count == 0)
-            {
-                count = size();
-            }
-            int limit = 1;
-            for (auto &_pair : topN(count))
-            {
-                ss << " " << limit << "=" << _pair.first << "/" << _pair.second->total_volume;
-                ++limit;
-            }
-            return ss.str();
-        }
-
-    public:
-        mutable std::map<int64_t, PriceLevel, Comp> levels;
-    };
-    using PriceBookGreat = PriceBook<std::greater<int64_t>>;
-    using PriceBookLess = PriceBook<std::less<int64_t>>;
-
-
     // =====================
     // 高性能价格簿
     // Descending=true  : 大价优先（典型买盘）
     // Descending=false : 小价优先（典型卖盘）
-    // 必须绑定共享 PriceLevelPool，所有价格档位统一从池中分配/归还
+    // 价格档位由 book 内部按 tick 下标管理，OrderNode 通过 PriceLevel* 关联档位。
     // =====================
     template<bool Descending>
     class PriceLevelBook
     {
     public:
-        PriceLevelBook(int64_t min_price, int64_t max_price, int64_t tick_size, PriceLevelPool* level_pool)
-            : min_price_(min_price),
-            max_price_(max_price),
-            tick_size_(tick_size),
-            level_pool_(level_pool)
+        PriceLevelBook(int64_t min_price, int64_t max_price, int64_t tick_size, std::string code)
+            : _min_price(min_price),
+            _max_price(max_price),
+            _tick_size(tick_size),
+            _code(code)
         {
-            if (tick_size_ <= 0)
+            if (_tick_size <= 0)
             {
                 throw std::invalid_argument("tick_size must be > 0");
             }
-            if (min_price_ > max_price_)
+            if (_min_price > _max_price)
             {
                 throw std::invalid_argument("min_price must be <= max_price");
             }
 
-            const int64_t span = max_price_ - min_price_;
-            if (span % tick_size_ != 0)
+            const int64_t span = _max_price - _min_price;
+            if (span % _tick_size != 0)
             {
                 throw std::invalid_argument("price range must align with tick_size");
             }
-            if (level_pool_ == nullptr)
-            {
-                throw std::invalid_argument("PriceLevelPool must not be null");
-            }
 
-            tick_count_ = static_cast<int32_t>(span / tick_size_) + 1;
-            levels_.assign(static_cast<size_t>(tick_count_), nullptr);
-            bitmap_.assign(static_cast<size_t>((tick_count_ + 63) >> 6), 0ULL);
+            _tick_count = static_cast<int32_t>(span / _tick_size) + 1;
+            _levels.assign(static_cast<size_t>(_tick_count), {});
+            _bitmap.assign(static_cast<size_t>((_tick_count + 63) >> 6), 0ULL);
 
-            best_tick_ = kInvalidTick;
-            active_count_ = 0;
+            _best_tick = kInvalidTick;
+            _cage_tick = kInvalidTick;
+            _active_count = 0;
         }
 
         PriceLevelBook() = delete;
@@ -176,29 +69,41 @@ namespace marketdata
 
         inline bool empty() const noexcept
         {
-            return active_count_ == 0;
+            return _active_count == 0;
         }
 
         inline size_t size() const noexcept
         {
-            return static_cast<size_t>(active_count_);
+            return static_cast<size_t>(_active_count);
         }
-
-        inline int64_t minPrice() const noexcept { return min_price_; }
-        inline int64_t maxPrice() const noexcept { return max_price_; }
-        inline int64_t tickSize() const noexcept { return tick_size_; }
-        inline int32_t tickCount() const noexcept { return tick_count_; }
 
         // ========= 最优价 =========
 
-        inline int64_t bestPrice() const noexcept
-        {
-            return best_tick_ == kInvalidTick ? 0 : tickToPrice(best_tick_);
-        }
-
         inline int32_t bestTick() const noexcept
         {
-            return best_tick_;
+            return _best_tick;
+        }
+
+        inline int64_t bestPrice() const noexcept
+        {
+            return _best_tick == kInvalidTick ? 0 : tickToPrice(_best_tick);
+        }
+
+        // ========= 价格笼子起点 =========
+
+        inline int32_t cageTick() const noexcept
+        {
+            return _cage_tick;
+        }
+
+        inline int64_t cagePrice() const noexcept
+        {
+            return _cage_tick == kInvalidTick ? 0 : tickToPrice(_cage_tick);
+        }
+
+        inline bool hasCageTick() const noexcept
+        {
+            return _cage_tick != kInvalidTick;
         }
 
         // ========= 查找 / 创建 =========
@@ -215,13 +120,12 @@ namespace marketdata
                 {
                     return nullptr;
                 }
-                levels_[static_cast<size_t>(tick)] = level;
                 setBit(tick);
-                ++active_count_;
+                ++_active_count;
                 updateBestOnInsert(tick);
             }
 
-            return levels_[static_cast<size_t>(tick)];
+            return &_levels[static_cast<size_t>(tick)];
         }
 
         // 不存在返回 nullptr
@@ -233,7 +137,7 @@ namespace marketdata
                 return nullptr;
             }
 
-            return testBit(tick) ? levels_[static_cast<size_t>(tick)] : nullptr;
+            return testBit(tick) ? &_levels[static_cast<size_t>(tick)] : nullptr;
         }
 
         inline const PriceLevel* find(int64_t price) const noexcept
@@ -244,7 +148,7 @@ namespace marketdata
                 return nullptr;
             }
 
-            return testBit(tick) ? levels_[static_cast<size_t>(tick)] : nullptr;
+            return testBit(tick) ? &_levels[static_cast<size_t>(tick)] : nullptr;
         }
 
         inline PriceLevel* findByTick(int32_t tick) noexcept
@@ -253,7 +157,7 @@ namespace marketdata
             {
                 return nullptr;
             }
-            return testBit(tick) ? levels_[static_cast<size_t>(tick)] : nullptr;
+            return testBit(tick) ? &_levels[static_cast<size_t>(tick)] : nullptr;
         }
 
         inline const PriceLevel* findByTick(int32_t tick) const noexcept
@@ -262,7 +166,7 @@ namespace marketdata
             {
                 return nullptr;
             }
-            return testBit(tick) ? levels_[static_cast<size_t>(tick)] : nullptr;
+            return testBit(tick) ? &_levels[static_cast<size_t>(tick)] : nullptr;
         }
 
         // ========= 删除 =========
@@ -286,11 +190,15 @@ namespace marketdata
 
             releaseLevel(tick);
             clearBit(tick);
-            --active_count_;
+            --_active_count;
 
-            if (tick == best_tick_)
+            if (tick == _best_tick)
             {
                 recomputeBestAfterErase(tick);
+            }
+            if (tick == _cage_tick)
+            {
+                recomputeCageAfterErase(tick);
             }
         }
 
@@ -317,33 +225,34 @@ namespace marketdata
 
         inline void clear() noexcept
         {
-            std::fill(bitmap_.begin(), bitmap_.end(), 0ULL);
-            for (int32_t tick = 0; tick < tick_count_; ++tick)
+            for (int32_t tick = 0; tick < _tick_count; ++tick)
             {
-                if (levels_[static_cast<size_t>(tick)] != nullptr)
+                if (_levels[static_cast<size_t>(tick)].is_use)
                 {
                     releaseLevel(tick);
                 }
             }
-            best_tick_ = kInvalidTick;
-            active_count_ = 0;
+            std::fill(_bitmap.begin(), _bitmap.end(), 0ULL);
+            _best_tick = kInvalidTick;
+            _cage_tick = kInvalidTick;
+            _active_count = 0;
         }
 
         // ========= TopN =========
         // 更适合热路径：调用方提供 buffer，避免分配
         inline int topNToBuffer(int n, std::pair<int64_t, const PriceLevel*>* out) const noexcept
         {
-            if (n <= 0 || out == nullptr || active_count_ == 0)
+            if (n <= 0 || out == nullptr || _active_count == 0)
             {
                 return 0;
             }
 
             int count = 0;
-            int32_t tick = best_tick_;
+            int32_t tick = _best_tick;
 
             while (tick != kInvalidTick && count < n)
             {
-                const PriceLevel* level = levels_[static_cast<size_t>(tick)];
+                const PriceLevel* level = &_levels[static_cast<size_t>(tick)];
                 out[count++] = {tickToPrice(tick), level};
                 tick = nextActiveTick(tick);
             }
@@ -355,40 +264,63 @@ namespace marketdata
 
         inline int allToBuffer(std::pair<int64_t, const PriceLevel*>* out) const noexcept
         {
-            if (out == nullptr || active_count_ == 0)
+            if (out == nullptr || _active_count == 0)
             {
                 return 0;
             }
 
             int count = 0;
-            int32_t tick = best_tick_;
+            int32_t tick = firstBookActiveTick();
 
             while (tick != kInvalidTick && count < size())
             {
-                out[count++] = {tickToPrice(tick), levels_[static_cast<size_t>(tick)]};
+                out[count++] = {tickToPrice(tick), &_levels[static_cast<size_t>(tick)]};
                 tick = nextActiveTick(tick);
             }
 
             return count;
         }
 
-        inline int allTicksToBuffer(int32_t* out) const noexcept
+        // ========= 价格笼子遍历 =========
+        // 价格笼子的遍历方向与 PriceLevelBook 的常规方向相反：
+        // Descending=true 时从低价向高价找，Descending=false 时从高价向低价找。
+
+        template<typename InCage>
+        inline bool refreshBestByCage(InCage&& in_cage) noexcept
         {
-            if (out == nullptr || active_count_ == 0)
-            {
-                return 0;
-            }
+            const int32_t old_best_tick = _best_tick;
+            const int32_t old_cage_tick = _cage_tick;
 
-            int count = 0;
-            int32_t tick = best_tick_;
+            _best_tick = kInvalidTick;
+            _cage_tick = kInvalidTick;
 
-            while (tick != kInvalidTick && count < size())
+            int32_t tick = firstBookActiveTick();
+            while (tick != kInvalidTick)
             {
-                out[count++] = tick;
+                const int64_t price = tickToPrice(tick);
+                if (in_cage(price))
+                {
+                    _best_tick = tick;
+                    break;
+                }
+
+                // 记录最靠近笼内边界的笼外档位，后续按反方向继续遍历笼外区域。
+                _cage_tick = tick;
                 tick = nextActiveTick(tick);
             }
 
-            return count;
+            return old_best_tick != _best_tick || old_cage_tick != _cage_tick;
+        }
+
+        inline bool clearCage() noexcept
+        {
+            const int32_t old_best_tick = _best_tick;
+            const int32_t old_cage_tick = _cage_tick;
+
+            _best_tick = firstBookActiveTick();
+            _cage_tick = kInvalidTick;
+
+            return old_best_tick != _best_tick || old_cage_tick != _cage_tick;
         }
 
         // ========= 打印 =========
@@ -418,18 +350,18 @@ namespace marketdata
 
         inline bool priceToTickNoThrow(int64_t price, int32_t& tick) const noexcept
         {
-            if (price < min_price_ || price > max_price_)
+            if (price < _min_price || price > _max_price)
             {
                 return false;
             }
 
-            const int64_t diff = price - min_price_;
-            if (diff % tick_size_ != 0)
+            const int64_t diff = price - _min_price;
+            if (diff % _tick_size != 0)
             {
                 return false;
             }
 
-            tick = static_cast<int32_t>(diff / tick_size_);
+            tick = static_cast<int32_t>(diff / _tick_size);
             return true;
         }
 
@@ -438,31 +370,14 @@ namespace marketdata
             int32_t tick = 0;
             if (!priceToTickNoThrow(price, tick))
             {
-                STDTHROW(STD_ERROR_CODE,"price out of range or not aligned with tick_size, price:"<<price<<" min:"<<min_price_<<" max:"<<max_price_, "price out of range or not aligned with tick_size, price:"<<price<<" min:"<<min_price_<<" max:"<<max_price_);
+                STDTHROW(STD_ERROR_CODE,"price out of range or not aligned with tick_size, price:"<<price<<" min:"<<_min_price<<" max:"<<_max_price<<" code:"<<_code, "price out of range or not aligned with tick_size, price:"<<price<<" min:"<<_min_price<<" max:"<<_max_price<<" code:"<<_code);
             }
             return tick;
         }
 
         inline int64_t tickToPrice(int32_t tick) const noexcept
         {
-            return min_price_ + static_cast<int64_t>(tick) * tick_size_;
-        }
-
-        inline bool containsPrice(int64_t price) const noexcept
-        {
-            int32_t tick = 0;
-            return priceToTickNoThrow(price, tick) && testBit(tick);
-        }
-
-        // 返回当前 book 绑定的价格档位池首地址，用于基于 slot 的订单链管理。
-        inline PriceLevel* levelPoolData() noexcept
-        {
-            return level_pool_->data();
-        }
-
-        inline const PriceLevel* levelPoolData() const noexcept
-        {
-            return level_pool_->data();
+            return _min_price + static_cast<int64_t>(tick) * _tick_size;
         }
 
         // ========= 邻接有效档位 =========
@@ -491,95 +406,156 @@ namespace marketdata
             }
         }
 
+        inline int32_t firstCageActiveTick() const noexcept
+        {
+            return _cage_tick;
+        }
+
+        inline int32_t nextCageActiveTick(int32_t current_tick) const noexcept
+        {
+            if constexpr (Descending)
+            {
+                return findNextSetBit(current_tick + 1);
+            }
+            else
+            {
+                return findPrevSetBit(current_tick - 1);
+            }
+        }
+
+        inline int32_t prevCageActiveTick(int32_t current_tick) const noexcept
+        {
+            if constexpr (Descending)
+            {
+                return findPrevSetBit(current_tick - 1);
+            }
+            else
+            {
+                return findNextSetBit(current_tick + 1);
+            }
+        }
+
+        inline int32_t lastTick(int32_t tick) const noexcept
+        {
+            if (testBit(tick))
+            {
+                return tick;
+            }
+            return nextActiveTick(tick);
+        }
+
     private:
         static constexpr int32_t kInvalidTick = -1;
 
         inline PriceLevel* acquireLevel(int32_t tick)
         {
-            return level_pool_->alloc(tickToPrice(tick));
+            PriceLevel* level = &_levels[static_cast<size_t>(tick)];
+            level->reset();
+            level->is_use = true;
+            level->price = tickToPrice(tick);
+            return level;
         }
 
         inline void releaseLevel(int32_t tick) noexcept
         {
-            PriceLevel* level = levels_[static_cast<size_t>(tick)];
-            if (level == nullptr)
+            if (!isValidTick(tick))
             {
                 return;
             }
-
-            level_pool_->free(level);
-            levels_[static_cast<size_t>(tick)] = nullptr;
+            PriceLevel* level = &_levels[static_cast<size_t>(tick)];
+            level->reset();
         }
 
         inline bool isValidTick(int32_t tick) const noexcept
         {
-            return tick >= 0 && tick < tick_count_;
+            return tick >= 0 && tick < _tick_count;
         }
 
         inline bool testBit(int32_t tick) const noexcept
         {
-            const uint64_t word = bitmap_[static_cast<size_t>(tick >> 6)];
+            const uint64_t word = _bitmap[static_cast<size_t>(tick >> 6)];
             return ((word >> (tick & 63)) & 1ULL) != 0;
         }
 
         inline void setBit(int32_t tick) noexcept
         {
-            bitmap_[static_cast<size_t>(tick >> 6)] |= (1ULL << (tick & 63));
+            _bitmap[static_cast<size_t>(tick >> 6)] |= (1ULL << (tick & 63));
         }
 
         inline void clearBit(int32_t tick) noexcept
         {
-            bitmap_[static_cast<size_t>(tick >> 6)] &= ~(1ULL << (tick & 63));
+            _bitmap[static_cast<size_t>(tick >> 6)] &= ~(1ULL << (tick & 63));
         }
 
         inline void updateBestOnInsert(int32_t tick) noexcept
         {
-            if (best_tick_ == kInvalidTick)
+            if (_best_tick == kInvalidTick)
             {
-                best_tick_ = tick;
+                _best_tick = tick;
                 return;
             }
 
             if constexpr (Descending)
             {
-                if (tick > best_tick_)
+                if (tick > _best_tick)
                 {
-                    best_tick_ = tick;
+                    _best_tick = tick;
                 }
             }
             else
             {
-                if (tick < best_tick_)
+                if (tick < _best_tick)
                 {
-                    best_tick_ = tick;
+                    _best_tick = tick;
                 }
+            }
+        }
+
+        inline int32_t firstBookActiveTick() const noexcept
+        {
+            if constexpr (Descending)
+            {
+                return findPrevSetBit(_tick_count - 1);
+            }
+            else
+            {
+                return findNextSetBit(0);
             }
         }
 
         inline void recomputeBestAfterErase(int32_t erased_tick) noexcept
         {
-            if (active_count_ == 0)
+            if (_active_count == 0)
             {
-                best_tick_ = kInvalidTick;
+                _best_tick = kInvalidTick;
                 return;
             }
 
             if constexpr (Descending)
             {
-                best_tick_ = findPrevSetBit(erased_tick - 1);
-                if (best_tick_ == kInvalidTick)
-                {
-                    // 理论上不会走到这里，除非 best 之上有空洞且更高位没挂单
-                    best_tick_ = findPrevSetBit(tick_count_ - 1);
-                }
+                _best_tick = findPrevSetBit(erased_tick - 1);
             }
             else
             {
-                best_tick_ = findNextSetBit(erased_tick + 1);
-                if (best_tick_ == kInvalidTick)
-                {
-                    best_tick_ = findNextSetBit(0);
-                }
+                _best_tick = findNextSetBit(erased_tick + 1);
+            }
+        }
+
+        inline void recomputeCageAfterErase(int32_t erased_tick) noexcept
+        {
+            if (_active_count == 0)
+            {
+                _cage_tick = kInvalidTick;
+                return;
+            }
+
+            if constexpr (Descending)
+            {
+                _cage_tick = findNextSetBit(erased_tick + 1);
+            }
+            else
+            {
+                _cage_tick = findPrevSetBit(erased_tick - 1);
             }
         }
 
@@ -590,7 +566,7 @@ namespace marketdata
             {
                 start_tick = 0;
             }
-            if (start_tick >= tick_count_)
+            if (start_tick >= _tick_count)
             {
                 return kInvalidTick;
             }
@@ -600,26 +576,26 @@ namespace marketdata
 
             // 先处理起始 word
             {
-                uint64_t word = bitmap_[word_idx];
+                uint64_t word = _bitmap[word_idx];
                 word &= (~0ULL << bit_idx);
                 if (word != 0)
                 {
                     const int offset = ctz64(word);
                     const int32_t tick = static_cast<int32_t>((word_idx << 6) + static_cast<size_t>(offset));
-                    return tick < tick_count_ ? tick : kInvalidTick;
+                    return tick < _tick_count ? tick : kInvalidTick;
                 }
             }
 
             // 后续完整 word
-            const size_t word_count = bitmap_.size();
+            const size_t word_count = _bitmap.size();
             for (++word_idx; word_idx < word_count; ++word_idx)
             {
-                const uint64_t word = bitmap_[word_idx];
+                const uint64_t word = _bitmap[word_idx];
                 if (word != 0)
                 {
                     const int offset = ctz64(word);
                     const int32_t tick = static_cast<int32_t>((word_idx << 6) + static_cast<size_t>(offset));
-                    return tick < tick_count_ ? tick : kInvalidTick;
+                    return tick < _tick_count ? tick : kInvalidTick;
                 }
             }
 
@@ -629,9 +605,9 @@ namespace marketdata
         // 找 <= start_tick 的第一个有效 tick
         inline int32_t findPrevSetBit(int32_t start_tick) const noexcept
         {
-            if (start_tick >= tick_count_)
+            if (start_tick >= _tick_count)
             {
-                start_tick = tick_count_ - 1;
+                start_tick = _tick_count - 1;
             }
             if (start_tick < 0)
             {
@@ -644,7 +620,7 @@ namespace marketdata
             // 先处理起始 word
             {
                 uint64_t mask = (bit_idx == 63) ? ~0ULL : ((1ULL << (bit_idx + 1)) - 1ULL);
-                uint64_t word = bitmap_[word_idx] & mask;
+                uint64_t word = _bitmap[word_idx] & mask;
                 if (word != 0)
                 {
                     const int offset = 63 - clz64(word);
@@ -656,7 +632,7 @@ namespace marketdata
             while (word_idx > 0)
             {
                 --word_idx;
-                const uint64_t word = bitmap_[word_idx];
+                const uint64_t word = _bitmap[word_idx];
                 if (word != 0)
                 {
                     const int offset = 63 - clz64(word);
@@ -680,17 +656,19 @@ namespace marketdata
         }
 
     private:
-        int64_t min_price_;
-        int64_t max_price_;
-        int64_t tick_size_;
+        int64_t _min_price;
+        int64_t _max_price;
+        int64_t _tick_size;
 
-        int32_t tick_count_ = 0;
-        int32_t best_tick_ = kInvalidTick;
-        int32_t active_count_ = 0;
+        int32_t _tick_count = 0;
+        int32_t _best_tick = kInvalidTick;
+        int32_t _cage_tick = kInvalidTick;
+        int32_t _active_count = 0;
 
-        PriceLevelPool* level_pool_ = nullptr;
-        std::vector<PriceLevel*> levels_;
-        std::vector<uint64_t> bitmap_;
+        std::vector<PriceLevel> _levels;
+        std::vector<uint64_t> _bitmap;
+
+        std::string _code;
     };
 
     using PriceLevelBookGreat = PriceLevelBook<true>;   // 买盘：高价优先

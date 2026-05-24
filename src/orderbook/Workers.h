@@ -268,8 +268,6 @@ public:
                 || std::is_same_v<T, marketdata::MatchingEngine>
                 || std::is_same_v<T, marketdata::LimitOrderBookLite>)
             {
-                // 每个 worker 内部的所有订单簿统一复用共享价格档位池；需要订单节点的实现再额外持有共享订单池。
-                m_price_level_pool = std::make_shared<marketdata::PriceLevelPool>();
                 if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>
                     || std::is_same_v<T, marketdata::MatchingEngine>)
                 {
@@ -296,7 +294,7 @@ public:
             if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>
                 || std::is_same_v<T, marketdata::MatchingEngine>)
             {
-                if (!m_order_pool || !m_price_level_pool)
+                if (!m_order_pool)
                 {
                     LOG_ERROR(app_log::logger(), "create code:{} OrderBook error, object pool is nullptr", code);
                     STDTHROW(STD_ERROR_CODE, "create code:"<<code<<" OrderBook error, object pool is nullptr", "create code:"<<code<<" OrderBook error, object pool is nullptr");
@@ -305,22 +303,15 @@ public:
                     m_date,
                     code,
                     m_order_pool,
-                    m_price_level_pool,
                     iter->second.per_close,
                     iter->second.limit_down_price,
                     iter->second.limit_up_price);
             }
             else if constexpr (std::is_same_v<T, marketdata::LimitOrderBookLite>)
             {
-                if (!m_price_level_pool)
-                {
-                    LOG_ERROR(app_log::logger(), "create code:{} OrderBookLite error, price level pool is nullptr", code);
-                    STDTHROW(STD_ERROR_CODE, "create code:"<<code<<" OrderBookLite error, price level pool is nullptr", "create code:"<<code<<" OrderBookLite error, price level pool is nullptr");
-                }
                 return std::make_unique<T>(
                     m_date,
                     code,
-                    m_price_level_pool,
                     iter->second.per_close,
                     iter->second.limit_down_price,
                     iter->second.limit_up_price);
@@ -351,7 +342,8 @@ public:
 
         inline void bindMatchCallback(int32_t channelNo, const std::string &code, T *orderbook)
         {
-            if constexpr (std::is_same_v<T, marketdata::MatchingEngine>)
+            if constexpr (std::is_same_v<T, marketdata::MatchingEngine> ||
+                          std::is_same_v<T, marketdata::LimitOrderBook>)
             {
                 if (orderbook == nullptr)
                 {
@@ -381,7 +373,7 @@ public:
     public:
         int workerId = -1;
         int cpuId = -1;
-        SpscRingBufferZC<WorkerMessage> ringBuffer;
+        SpscRingBuffer<WorkerMessage> ringBuffer;
         std::thread thread;
         std::atomic<uint64_t> enqueued{0};
         std::atomic<uint64_t> dropped{0};
@@ -434,7 +426,8 @@ public:
 
         void setMatchCallback(InnerMatchCallback callback)
         {
-            if constexpr (std::is_same_v<T, marketdata::MatchingEngine>)
+            if constexpr (std::is_same_v<T, marketdata::MatchingEngine> ||
+                          std::is_same_v<T, marketdata::LimitOrderBook>)
             {
                 m_matchCallback = std::move(callback);
                 for (auto &[_, holder] : m_orderbooks)
@@ -510,7 +503,6 @@ public:
         std::string m_date;
         std::shared_ptr<const std::unordered_map<std::string, LOBBaseOpenBeforeData>> m_open_before_map;
         std::shared_ptr<marketdata::OrderPool> m_order_pool;
-        std::shared_ptr<marketdata::PriceLevelPool> m_price_level_pool;
         // 同一个 worker 内允许出现同 code 的多个 orderbook，因此 map key 必须带 channel 信息。
         std::unordered_map<SecurityKey, OrderbookHolder> m_orderbooks;
         InnerMatchCallback m_matchCallback;
@@ -783,19 +775,13 @@ private:
         }
 
 #if ORDERBOOK_WORKERS_ENQUEUE_MODE_TRY_DROP
-        typename SpscRingBufferZC<WorkerMessage>::WriteReservation reservation;
-        if (!worker->ringBuffer.tryAcquireWrite(reservation))
+        if (!worker->ringBuffer.tryPush(std::move(message)))
         {
             worker->dropped.fetch_add(1, std::memory_order_release);
             return false;
         }
-        *reservation.data = std::move(message);
-        worker->ringBuffer.commitWrite(reservation);
 #else
-        typename SpscRingBufferZC<WorkerMessage>::WriteReservation reservation;
-        WorkerMessage *slot = worker->ringBuffer.acquireWrite(reservation);
-        *slot = std::move(message);
-        worker->ringBuffer.commitWrite(reservation);
+        worker->ringBuffer.push(std::move(message));
 #endif
 
         worker->enqueued.fetch_add(1, std::memory_order_release);
@@ -868,7 +854,8 @@ private:
 
     inline void refreshMatchCallbacks()
     {
-        if constexpr (std::is_same_v<T, marketdata::MatchingEngine>)
+        if constexpr (std::is_same_v<T, marketdata::MatchingEngine> ||
+                      std::is_same_v<T, marketdata::LimitOrderBook>)
         {
             for (auto &workerPtr : m_workers)
             {
@@ -888,37 +875,35 @@ private:
     {
         while (m_running.load(std::memory_order_acquire) || !worker.ringBuffer.empty())
         {
-            typename SpscRingBufferZC<WorkerMessage>::ReadReservation reservation;
-            if (!worker.ringBuffer.tryAcquireRead(reservation))
+            WorkerMessage message{};
+            if (!worker.ringBuffer.tryPop(message))
             {
                 ringbuffer_detail::cpuRelax();
                 continue;
             }
 
-            const WorkerMessage *message = reservation.data;
-            if (message->type == MessageType::ORDER)
+            if (message.type == MessageType::ORDER)
             {
-                marketdata::MDOrder scopedOrder = message->payload.order;
+                marketdata::MDOrder scopedOrder = message.payload.order;
                 scopeOrderIds(scopedOrder);
                 worker.onOrderDetail(&scopedOrder);
                 if (m_orderCallback)
                 {
-                    m_orderCallback(&worker, &message->payload.order);
+                    m_orderCallback(&worker, &message.payload.order);
                 }
             }
-            else if (message->type == MessageType::TRADE)
+            else if (message.type == MessageType::TRADE)
             {
-                marketdata::MDTrade scopedTrade = message->payload.trade;
+                marketdata::MDTrade scopedTrade = message.payload.trade;
                 scopeTradeIds(scopedTrade);
                 worker.onTransaction(&scopedTrade);
                 if (m_tradeCallback)
                 {
-                    m_tradeCallback(&worker, &message->payload.trade);
+                    m_tradeCallback(&worker, &message.payload.trade);
                 }
             }
 
             worker.processed.fetch_add(1, std::memory_order_release);
-            worker.ringBuffer.commitRead(reservation);
         }
     }
 

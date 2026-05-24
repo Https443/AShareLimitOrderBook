@@ -21,6 +21,7 @@ namespace marketdata {
         static const uint32_t kFutureSecurityCodeLen = 32; // 期货证券代码最大长度
         static const uint32_t kSecurityNameLen = 32;       // 证券名称最大长度
         static const uint32_t kPositionLevelLen = 10;      // 行情档位
+        static const uint32_t kPositionParidLevelLen = 20;      // 行情档位
         static const uint32_t kPathLen = 255;              // 文件路径最大长度
         static const uint32_t kConfirmIdLen = 8;           // 定价行情约定号 为空表示意向行情 否则为定价行情
         static const uint32_t kContactorLen = 12;          // 联系人
@@ -104,6 +105,31 @@ namespace marketdata {
         int64_t offer_order[ConstField::kPositionLevelLen];  // 委卖挂单数量
     };
     // 8+8+8+8+8+8+8+8+8+8+8+8+8+(10*8)+(10*8)+(10*8)+(10*8)+(10*8)+(10*8)=584
+
+    // 合成快照
+    struct MDRapidSnapshot
+    {
+        char security_code[ConstField::rSecurityCodeLen];    // 证券代码
+        int64_t orig_time;                                   // 时间（YYYYMMDDHHMMSSsss)
+        int64_t last_price;                                  // 最新价，实际值需除以1000000
+        int64_t pre_close_price;                             // 昨收价，实际值需除以1000000
+        int64_t open_price;                                  // 开盘价，实际值需除以1000000, 暂未更新
+        int64_t high_price;                                  // 最高价，实际值需除以1000000
+        int64_t low_price;                                   // 最低价，实际值需除以1000000
+        int64_t close_price;                                 // 收盘价，实际值需除以1000000, 暂未更新
+        int64_t volume;                                      // 成交量
+        int64_t turnover;                                    // 成交额，实际值需除以1000000
+        int64_t high_limited;                                // 涨停价，实际值需除以1000000
+        int64_t low_limited;                                 // 跌停价，实际值需除以1000000
+        int64_t bid_price[ConstField::kPositionParidLevelLen];    // 申买价，实际值需除以1000000
+        int64_t bid_volume[ConstField::kPositionParidLevelLen];   // 申买量
+        int64_t offer_price[ConstField::kPositionParidLevelLen];  // 申卖价，实际值需除以1000000
+        int64_t offer_volume[ConstField::kPositionParidLevelLen]; // 申卖量
+        int64_t bid_order[ConstField::kPositionParidLevelLen];    // 委买挂单数量
+        int64_t offer_order[ConstField::kPositionParidLevelLen];  // 委卖挂单数量
+    };
+    // 8+(11*8)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)=132*8=1056
+
     /**
      * @name 现货快照数据信息结构定义
      * @{ */
@@ -390,7 +416,8 @@ namespace marketdata {
     enum class MixedRecordType : uint8_t
     {
         ORDER = 0,
-        TRADE = 1
+        TRADE = 1,
+        END = 255
     };
 
     #pragma pack(push, 1)
