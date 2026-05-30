@@ -108,6 +108,7 @@ namespace marketdata
             releaseBookOrders(_sell_book);
 
             _match_callback = nullptr;
+            _current_phase = TradingPhase::PRE_OPEN;
         }
 
         inline bool isPriceCageEnabled() const { return _price_cage_enabled; }
@@ -143,12 +144,18 @@ namespace marketdata
                 return;
             }
             int64_t time = order->datetime % 1000000000L;
+            TradingPhase phase = determinePhase(time);
+            handlePhaseTransition(phase, time);
 
             if (order->channel_no < 10)
             {
                 // 上交所输出的order是未成交的order委托，已成交的的不显示委托，只在trade中一带而过
                 if (order->order_type == 'A')
                 {
+                    int64_t buy_best_price = _buy_book.bestPrice();
+                    int64_t sell_best_price = _sell_book.bestPrice();
+                    _price_cage.set(buy_best_price, sell_best_price, _last_price);
+
                     if (order->side == 'B')
                     {
                         addOrder(order->appl_seq_num, order->price, order->volume, time, OrderSideType::BUY, MarketOrderType::NONE);
@@ -157,6 +164,7 @@ namespace marketdata
                     {
                         addOrder(order->appl_seq_num, order->price, order->volume, time, OrderSideType::SELL, MarketOrderType::NONE);
                     }
+                    checkAndMovePendingOrders();
                 }
                 else if (order->order_type == 'D')
                 {
@@ -168,12 +176,18 @@ namespace marketdata
                     {
                         dropOrder(order->appl_seq_num, order->volume, time, OrderSideType::SELL);
                     }
+
+                    int64_t buy_best_price = _buy_book.bestPrice();
+                    int64_t sell_best_price = _sell_book.bestPrice();
+                    _price_cage.set(buy_best_price, sell_best_price, _last_price);
+                    checkAndMovePendingOrders();
                 }
-                // 价格笼子边界可能变化，刷新笼内 best。
-                checkAndMovePendingOrders();
             }
             else if (order->channel_no > 2000)
             {
+                int64_t buy_best_price = _buy_book.bestPrice();
+                int64_t sell_best_price = _sell_book.bestPrice();
+                _price_cage.set(buy_best_price, sell_best_price, _last_price);
                 // 买 / 借入
                 if (order->side == '1' || order->side == 'G')
                 {
@@ -181,6 +195,15 @@ namespace marketdata
                     if (order->order_type == '2')
                     {
                         addOrder(order->appl_seq_num, order->price, order->volume, time, OrderSideType::BUY, MarketOrderType::LIMIT);
+                        // 集合竞价期间模拟撮合最新价
+                        if (phase == TradingPhase::OPEN_CALL_AUCTION)
+                        {
+                            _last_price = calculateAuctionPrice(true);
+                        }
+                        else if (phase == TradingPhase::CLOSE_CALL_AUCTION)
+                        {
+                            _last_price = calculateAuctionPrice(false);
+                        }
                     }
                     // 市价单情况特殊处理[除本方最优，其他四个市价单均以对手价成交]
                     else if (order->order_type == '1')
@@ -211,6 +234,15 @@ namespace marketdata
                     if (order->order_type == '2')
                     {
                         addOrder(order->appl_seq_num, order->price, order->volume, time, OrderSideType::SELL, MarketOrderType::LIMIT);
+                        // 集合竞价期间模拟撮合最新价
+                        if (phase == TradingPhase::OPEN_CALL_AUCTION)
+                        {
+                            _last_price = calculateAuctionPrice(true);
+                        }
+                        else if (phase == TradingPhase::CLOSE_CALL_AUCTION)
+                        {
+                            _last_price = calculateAuctionPrice(false);
+                        }
                     }
                     else if (order->order_type == '1')
                     {
@@ -237,10 +269,11 @@ namespace marketdata
                 {
                     LOG_ERROR(app_log::logger(), "not support order side:{}, order type:{}, order id:{}", order->side, order->order_type, order->appl_seq_num);
                 }
-                // 模拟撮合
-                tryMatchCrossedMainBook(order->datetime);
                 // 价格笼子边界可能变化，刷新笼内 best。
                 checkAndMovePendingOrders();
+
+                // 模拟撮合
+                tryMatchCrossedMainBook(order->datetime);
             }
         };
 
@@ -251,6 +284,8 @@ namespace marketdata
                 return;
             }
             int64_t time = trade->datetime % 1000000000L;
+            TradingPhase phase = determinePhase(time);
+            handlePhaseTransition(phase, time);
 
             if (trade->channel_no < 10)
             {
@@ -299,11 +334,21 @@ namespace marketdata
                     dropOrder(trade->bid_appl_seq_num, trade->volume, time, OrderSideType::BUY, false, true);
                     dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL, false, true);
                 }
-                // 价格笼子边界可能变化，刷新笼内 best。
-                checkAndMovePendingOrders();
+                if (!hasCrossedMainBook())
+                {
+                    int64_t buy_best_price = _buy_book.bestPrice();
+                    int64_t sell_best_price = _sell_book.bestPrice();
+                    _price_cage.set(buy_best_price, sell_best_price, _last_price);
+                    // 价格笼子边界可能变化，刷新笼内 best。
+                    checkAndMovePendingOrders();
+                }
             }
             else if (trade->channel_no > 2000)
             {
+                int64_t buy_best_price = _buy_book.bestPrice();
+                int64_t sell_best_price = _sell_book.bestPrice();
+                _price_cage.set(buy_best_price, sell_best_price, _last_price);
+
                 // 撤单
                 if (trade->exec_type == '4')
                 {
@@ -318,8 +363,14 @@ namespace marketdata
                         if (_skip_ids.find(trade->offer_appl_seq_num) != _skip_ids.end()) return;
                         dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL, true);
                     }
-                    // 价格笼子边界可能变化，刷新笼内 best。
-                    checkAndMovePendingOrders();
+                    if (!hasCrossedMainBook())
+                    {
+                        int64_t buy_best_price = _buy_book.bestPrice();
+                        int64_t sell_best_price = _sell_book.bestPrice();
+                        _price_cage.set(buy_best_price, sell_best_price, _last_price);
+                        // 价格笼子边界可能变化，刷新笼内 best。
+                        checkAndMovePendingOrders();
+                    }
                     // 模拟撮合
                     tryMatchCrossedMainBook(trade->datetime);
                 }
@@ -330,8 +381,16 @@ namespace marketdata
                     _last_price = trade->price;
                     dropOrder(trade->bid_appl_seq_num, trade->volume, time, OrderSideType::BUY);
                     dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL);
-                    // 价格笼子边界可能变化，刷新笼内 best。
-                    checkAndMovePendingOrders();
+                    if (!hasCrossedMainBook())
+                    {
+                        int64_t buy_best_price = _buy_book.bestPrice();
+                        int64_t sell_best_price = _sell_book.bestPrice();
+                        _price_cage.set(buy_best_price, sell_best_price, _last_price);
+                        // 价格笼子边界可能变化，刷新笼内 best。
+                        checkAndMovePendingOrders();
+                    }
+                    // 真实成交会改变主簿；若上一条订单触发过模拟撮合，需要在这里清理或继续撮合。
+                    tryMatchCrossedMainBook(trade->datetime);
                 }
             }
         };
@@ -431,6 +490,12 @@ namespace marketdata
         }
 
         template<typename BookType>
+        inline int64_t tickToActivePrice(const BookType& book, int32_t tick) const
+        {
+            return book.findByTick(tick) ? book.tickToPrice(tick) : 0L;
+        }
+
+        template<typename BookType>
         inline bool linkNodeToBook(BookType& book, int64_t price, OrderNode* node)
         {
             PriceLevel* level = book.getOrCreate(price);
@@ -495,47 +560,35 @@ namespace marketdata
             book.clear();
         }
 
-        inline bool checkMoveBuyCage(PriceCage &price_cage)
+        inline bool checkMoveBuyCage()
         {
             if (!_price_cage_enabled) return false;
-            int64_t base_price = price_cage.getBuyBasePrice();
+            int64_t base_price = _price_cage.getBuyBasePrice();
             if (base_price <= 0)
             {
                 return _buy_book.clearCage();
             }
 
-            const int64_t upper_price = price_cage.getBuyCageUpperPrice(base_price);
-            return _buy_book.refreshBestByCage([upper_price](int64_t price) 
+            return _buy_book.refreshBestByCage([this](int64_t price) 
             {
-                return price <= upper_price;
+                return _price_cage.isBuyPriceInCage(price);
             });
         }
 
-        inline bool checkMoveSellCage(PriceCage &price_cage)
+        inline bool checkMoveSellCage()
         {
             if (!_price_cage_enabled) return false;
-            int64_t base_price = price_cage.getSellBasePrice();
+            int64_t base_price = _price_cage.getSellBasePrice();
             if (base_price <= 0)
             {
                 return _sell_book.clearCage();
             }
 
-            const int64_t lower_price = price_cage.getSellCageLowerPrice(base_price);
-            return _sell_book.refreshBestByCage([lower_price](int64_t price) 
+            const int64_t lower_price = _price_cage.getSellCageLowerPrice(base_price);
+            return _sell_book.refreshBestByCage([this](int64_t price) 
             {
-                return price >= lower_price;
+                return _price_cage.isSellPriceInCage(price);
             });
-        }
-
-        inline void syncMatchTickToVisibleBestIfIdle()
-        {
-            if (!_match_status_reset)
-            {
-                return;
-            }
-
-            _match_tick._buy_tick = _buy_book.bestTick();
-            _match_tick._sell_tick = _sell_book.bestTick();
         }
 
         // 按价格笼子刷新买卖簿的笼内 best_tick_ 与笼外 cage_tick_。
@@ -543,30 +596,22 @@ namespace marketdata
         {
             if (!_price_cage_enabled)
             {
-                syncMatchTickToVisibleBestIfIdle();
                 return;
             }
             if (_current_time < 93000000L || _current_time >= 145700000L)
             {
                 _buy_book.clearCage();
                 _sell_book.clearCage();
-                syncMatchTickToVisibleBestIfIdle();
                 return;
             }
-            
-            int64_t buy_best_price = _buy_book.bestPrice();
-            int64_t sell_best_price = _sell_book.bestPrice();
-            _price_cage.set(buy_best_price, sell_best_price, _last_price);
 
             while (true)
             {
                 bool changed = false;
-                changed |= checkMoveBuyCage(_price_cage);
-                changed |= checkMoveSellCage(_price_cage);
+                changed |= checkMoveBuyCage();
+                changed |= checkMoveSellCage();
                 if (!changed) break;
             }
-            
-            syncMatchTickToVisibleBestIfIdle();
         }
 
         // ============ 模拟撮合核心逻辑 ============
@@ -618,9 +663,12 @@ namespace marketdata
         inline int64_t matchCrossedMainBook(int64_t datetime)
         {
             int32_t buy_tick = _buy_book.bestTick();
-            int64_t buy_price = _buy_book.tickToPrice(buy_tick);
+            int64_t buy_price = tickToActivePrice(_buy_book, buy_tick);
             int32_t sell_tick = _sell_book.bestTick();
-            int64_t sell_price = _sell_book.tickToPrice(sell_tick);
+            int64_t sell_price = tickToActivePrice(_sell_book, sell_tick);
+
+            int64_t current_buy_price = buy_price;
+            int64_t current_sell_price = sell_price;
 
             int64_t consumed = 0;
             while (true)
@@ -678,7 +726,7 @@ namespace marketdata
                 if (buy_null_level)
                 {
                     buy_tick = _buy_book.nextActiveTick(buy_tick);
-                    buy_price = _buy_book.tickToPrice(buy_tick);
+                    buy_price = tickToActivePrice(_buy_book, buy_tick);
                     continue;
                 }
 
@@ -720,7 +768,7 @@ namespace marketdata
                 if (sell_null_level)
                 {
                     sell_tick = _sell_book.nextActiveTick(sell_tick);
-                    sell_price = _sell_book.tickToPrice(sell_tick);
+                    sell_price = tickToActivePrice(_sell_book, sell_tick);
                     continue;
                 }
                 if (!buy_node || !sell_node) break;
@@ -765,7 +813,7 @@ namespace marketdata
                     buy_level->match_total_volume = 0;
 
                     buy_tick = _buy_book.nextActiveTick(buy_tick);
-                    buy_price = _buy_book.tickToPrice(buy_tick);
+                    buy_price = tickToActivePrice(_buy_book, buy_tick);
                 }
                 if (sell_level->match_total_volume <= 0)
                 {
@@ -773,35 +821,41 @@ namespace marketdata
                     sell_level->match_total_volume = 0;
 
                     sell_tick = _sell_book.nextActiveTick(sell_tick);
-                    sell_price = _sell_book.tickToPrice(sell_tick);
+                    sell_price = tickToActivePrice(_sell_book, sell_tick);
                 }
 
-                // 撮合完成后，按影子撮合状态重新推导下一轮可见的起始档位。
-                _match_price_cage.set(buy_price, sell_price, _match_last_price);
-                int64_t base_price = _match_price_cage.getBuyBasePrice();
-                if (base_price <= 0) break;
-                int64_t upper_price = _match_price_cage.getBuyCageUpperPrice(base_price);
-                if (upper_price > _limitup_price)
+                // 撮合完成后，检查盘口是否变更，如果盘口变更则需要检查是否有价格入笼
+                if (current_buy_price != buy_price || current_sell_price != sell_price)
                 {
-                    upper_price = _limitup_price;
+                    _match_price_cage.set(buy_price, sell_price, _match_last_price);
+                    int64_t buy_base_price = _match_price_cage.getBuyBasePrice();
+                    if (buy_base_price <= 0) break;
+                    int64_t upper_price = _match_price_cage.getBuyCageUpperPrice(buy_base_price);
+                    if (upper_price > _limitup_price)
+                    {
+                        upper_price = _limitup_price;
+                    }
+                    buy_tick = _buy_book.priceToTickChecked(upper_price);
+                    buy_tick = _buy_book.lastTick(buy_tick);
+                    buy_price = tickToActivePrice(_buy_book, buy_tick);
+                    
+                    int64_t sell_base_price = _match_price_cage.getSellBasePrice();
+                    if (sell_base_price <= 0) break;
+                    int64_t lower_price = _match_price_cage.getSellCageLowerPrice(sell_base_price);
+                    if (lower_price < _limitdown_price)
+                    {
+                        lower_price = _limitdown_price;
+                    }
+                    sell_tick = _sell_book.priceToTickChecked(lower_price);
+                    sell_tick = _sell_book.lastTick(sell_tick);
+                    sell_price = tickToActivePrice(_sell_book, sell_tick);
                 }
-                buy_tick = _buy_book.priceToTickChecked(upper_price);
-                buy_tick = _buy_book.lastTick(buy_tick);
-                buy_price = _buy_book.tickToPrice(buy_tick);
-                
-                base_price = _match_price_cage.getSellBasePrice();
-                if (base_price <= 0) break;
-                int64_t lower_price = _match_price_cage.getSellCageLowerPrice(base_price);
-                if (lower_price < _limitdown_price)
-                {
-                    lower_price = _limitdown_price;
-                }
-                sell_tick = _sell_book.priceToTickChecked(lower_price);
-                sell_tick = _sell_book.lastTick(sell_tick);
-                sell_price = _sell_book.tickToPrice(sell_tick);
-
+                current_buy_price = buy_price;
+                current_sell_price = sell_price;
                 consumed += trade_vol;
             }
+            _match_tick._buy_tick = buy_tick;
+            _match_tick._sell_tick = sell_tick;
             return consumed;
         }
 
@@ -812,6 +866,47 @@ namespace marketdata
             return bid1 > 0 && ask1 > 0 && bid1 >= ask1;
         }
 
+        inline void resetAllMatchStatus()
+        {
+            auto resetBookMatchStatus = [this](auto &book)
+            {
+                for (int32_t tick = book.bestTick(); tick >= 0; tick = book.nextActiveTick(tick))
+                {
+                    PriceLevel *level = book.findByTick(tick);
+                    if (!level)
+                    {
+                        continue;
+                    }
+
+                    for (uint32_t slot = level->head_slot; slot != OrderNode::INVALID_SLOT; )
+                    {
+                        OrderNode *order_node = _pool->getBySlot(slot);
+                        if (!order_node || !order_node->is_use)
+                        {
+                            LOG_WARNING(app_log::logger(),
+                                        "resetAllMatchStatus hit invalid order slot, date:{} code:{} price:{} slot:{}",
+                                        _date, _code, level->price, slot);
+                            break;
+                        }
+
+                        order_node->resetMatchStatus();
+                        slot = order_node->next_slot;
+                    }
+
+                    level->resetMatchStatus();
+                }
+            };
+
+            resetBookMatchStatus(_buy_book);
+            resetBookMatchStatus(_sell_book);
+
+            _match_changed_order_node_slots.clear();
+            _match_changed_price_levels.clear();
+            _match_status_reset = false;
+            _match_tick._buy_tick = _buy_book.bestTick();
+            _match_tick._sell_tick = _sell_book.bestTick();
+        }
+
         inline void tryMatchCrossedMainBook(int64_t datetime)
         {
             if (!isContinuousCageTime()) return;
@@ -820,31 +915,30 @@ namespace marketdata
             if (need_match)
             {
                 matchCrossedMainBook(datetime);
-                _match_status_reset = false;
+                _match_status_reset = true;
             }
-            else
+            else if (!_match_changed_order_node_slots.empty()
+                     || !_match_changed_price_levels.empty())
             {
-                if (!_match_status_reset)
+                for (auto &slot : _match_changed_order_node_slots)
                 {
-                    for (auto &slot : _match_changed_order_node_slots)
+                    OrderNode *order_node = _pool->getBySlot(slot);
+                    if (order_node)
                     {
-                        OrderNode *order_node = _pool->getBySlot(slot);
-                        if (order_node)
-                        {
-                            order_node->resetMatchStatus();
-                        }
+                        order_node->resetMatchStatus();
                     }
-                    _match_changed_order_node_slots.clear();
-                    for (auto level : _match_changed_price_levels)
-                    {
-                        if (level)
-                        {
-                            level->resetMatchStatus();
-                        }
-                    }
-                    _match_changed_price_levels.clear();
-                    _match_status_reset = true;
                 }
+                _match_changed_order_node_slots.clear();
+
+                for (auto level : _match_changed_price_levels)
+                {
+                    if (level)
+                    {
+                        level->resetMatchStatus();
+                    }
+                }
+                _match_changed_price_levels.clear();
+                _match_status_reset = false;
 
                 _match_tick._buy_tick = _buy_book.bestTick();
                 _match_tick._sell_tick = _sell_book.bestTick();
@@ -1073,6 +1167,23 @@ namespace marketdata
             }
         }
 
+        inline void syncMatchStateAfterBookUpdate(OrderNode* order_node, PriceLevel* level, bool is_cancel)
+        {
+            if (_match_status_reset && !is_cancel)
+            {
+                return;
+            }
+
+            if (order_node)
+            {
+                order_node->resetMatchStatus();
+            }
+            if (level)
+            {
+                level->resetMatchStatus();
+            }
+        }
+
         inline void dropOrder(int64_t id, int64_t volume, int64_t time, OrderSideType side_type, bool is_cancel = false, bool ignore = false)
         {
             _current_time = time;
@@ -1105,11 +1216,7 @@ namespace marketdata
             {
                 PriceLevel* _price_level = getPriceLevel(_order_node);
                 _pool->unlink(_order_node);
-
-                if ((_price_level && _match_status_reset) || is_cancel)
-                {
-                    _price_level->resetMatchStatus();
-                }
+                syncMatchStateAfterBookUpdate(nullptr, _price_level, is_cancel);
 
                 // 如果 volume 为 0 则删除价格档位；笼外订单仍在同一本簿内。
                 eraseEmptyLevel(side_type, _order_node->price, _price_level);
@@ -1124,18 +1231,55 @@ namespace marketdata
                 if (level)
                 {
                     level->total_volume -= target_volume;
-                    if (_match_status_reset || is_cancel)
-                    {
-                        level->resetMatchStatus();
-                    }
                 }
                 // OrderNode量减
                 _order_node->volume -= target_volume;
-                if (_match_status_reset || is_cancel)
-                {
-                    _order_node->resetMatchStatus();
-                }
+                syncMatchStateAfterBookUpdate(_order_node, level, is_cancel);
             }
+        }
+
+        /**
+         * @brief 根据时间判断当前交易阶段
+         * @param time 时间戳（格式：HHMMSSmmm，如93000000表示9:30:00.000）
+         * @return 对应的交易阶段枚举值
+         * @note 交易阶段划分：
+         *       - PRE_OPEN: <9:15 或 11:30-13:00（午休）
+         *       - OPEN_CALL_AUCTION: 9:15-9:25（开盘集合竞价）
+         *       - OPEN_CALL_MATCH: 9:25-9:30（开盘集合竞价撮合）
+         *       - CONTINUOUS_TRADING: 9:30-11:30, 13:00-14:57（连续竞价）
+         *       - CLOSE_CALL_AUCTION: 14:57-15:00（收盘集合竞价）
+         *       - CLOSED: >=15:00
+         */
+        TradingPhase determinePhase(int64_t time) const
+        {
+            if (time < 91500000L)
+                return TradingPhase::PRE_OPEN;
+            else if (time >= 91500000L && time < 92500000L)
+                return TradingPhase::OPEN_CALL_AUCTION;
+            else if (time >= 92500000L && time < 93000000L)
+                return TradingPhase::OPEN_CALL_MATCH;
+            else if (time >= 93000000L && time < 113000000L)
+                return TradingPhase::CONTINUOUS_TRADING;
+            else if (time >= 113000000L && time < 130000000L)
+                return TradingPhase::PRE_OPEN;  // 午休
+            else if (time >= 130000000L && time < 145700000L)
+                return TradingPhase::CONTINUOUS_TRADING;
+            else if (time >= 145700000L && time < 150000000L)
+                return TradingPhase::CLOSE_CALL_AUCTION;
+            else
+                return TradingPhase::CLOSED;
+        }
+
+        inline void handlePhaseTransition(TradingPhase new_phase, int64_t time)
+        {
+            // 最后一个订单是92500000L前收到，下一个订单是93000000L
+            if (_current_phase == TradingPhase::OPEN_CALL_MATCH &&
+                new_phase == TradingPhase::CONTINUOUS_TRADING)
+            {
+                resetAllMatchStatus();
+            }
+
+            _current_phase = new_phase;
         }
 
         template<typename Book>
@@ -1185,6 +1329,7 @@ namespace marketdata
         std::unordered_set<PriceLevel*> _match_changed_price_levels; // 撮合期间修改的PriceLevel指针
         std::unordered_set<uint32_t> _match_changed_order_node_slots; // 撮合期间修改的OrderNode的Slot
 
+        TradingPhase _current_phase = TradingPhase::PRE_OPEN;
         std::string _date = "";
         std::string _code = "";    
     };

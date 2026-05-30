@@ -85,9 +85,16 @@ class MakeSnapshot
                     continue;
                 }
 
-                _snap.bid_order[level_num] = level->match_order_size;
+                // const int64_t visible_order_size = std::clamp<int64_t>(
+                //     static_cast<int64_t>(level->match_order_size), 0, static_cast<int64_t>(level->order_size));
+                // const int64_t visible_volume = std::clamp<int64_t>(
+                //     level->match_total_volume, 0, level->total_volume);
+                const int64_t visible_order_size = static_cast<int64_t>(level->match_order_size);
+                const int64_t visible_volume = level->match_total_volume;
+
+                _snap.bid_order[level_num] = visible_order_size;
                 _snap.bid_price[level_num] = level->price;
-                _snap.bid_volume[level_num] = level->match_total_volume;
+                _snap.bid_volume[level_num] = visible_volume;
                 buy_tick = buy_book->nextActiveTick(buy_tick);
 
                 if (buy_check_break_tick == buy_tick) break;
@@ -113,9 +120,16 @@ class MakeSnapshot
                     continue;
                 }
 
-                _snap.offer_order[level_num] = level->match_order_size;
+                // const int64_t visible_order_size = std::clamp<int64_t>(
+                //     static_cast<int64_t>(level->match_order_size), 0, static_cast<int64_t>(level->order_size));
+                // const int64_t visible_volume = std::clamp<int64_t>(
+                //     level->match_total_volume, 0, level->total_volume);
+                const int64_t visible_order_size = static_cast<int64_t>(level->match_order_size);
+                const int64_t visible_volume = level->match_total_volume;
+
+                _snap.offer_order[level_num] = visible_order_size;
                 _snap.offer_price[level_num] = level->price;
-                _snap.offer_volume[level_num] = level->match_total_volume;
+                _snap.offer_volume[level_num] = visible_volume;
                 sell_tick = sell_book->nextActiveTick(sell_tick);
 
                 if (sell_check_break_tick == sell_tick) break;
