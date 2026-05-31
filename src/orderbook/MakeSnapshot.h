@@ -28,6 +28,15 @@ class MakeSnapshot
             _snap.orig_time = lob->getCurrentTime();
             clearBidLevels();
             clearOfferLevels();
+            _snap.id = lob->getCurrentId();
+            _snap.last_price = lob->getLastPrice();
+            _snap.low_limited = lob->getLimitdownPrice();
+            _snap.high_limited = lob->getLimitupPrice();
+            _snap.pre_close_price = lob->getPreClose();
+            _snap.high_price = std::max(_snap.high_price, _snap.last_price);
+            _snap.low_price = std::min(_snap.low_price, _snap.last_price);
+            _snap.volume = lob->getVolumes();
+            _snap.turnover = lob->getTurnover();
 
             std::array<std::pair<int64_t, const marketdata::PriceLevel *>, ConstField::kPositionParidLevelLen> buyLevels{};
             lob->getBuyTopN(ConstField::kPositionParidLevelLen, buyLevels.data());
@@ -67,6 +76,15 @@ class MakeSnapshot
             _snap.orig_time = lob->getCurrentTime();
             clearBidLevels();
             clearOfferLevels();
+            _snap.id = lob->getCurrentId();
+            _snap.last_price = lob->getLastPrice();
+            _snap.low_limited = lob->getLimitdownPrice();
+            _snap.high_limited = lob->getLimitupPrice();
+            _snap.pre_close_price = lob->getPreClose();
+            _snap.high_price = std::max(_snap.high_price, _snap.last_price);
+            _snap.low_price = std::min(_snap.low_price, _snap.last_price);
+            _snap.volume = lob->getMatchVolumes();
+            _snap.turnover = lob->getMatchTurnover();
 
             int32_t buy_tick = buy_book->findByTick(match_tick->_buy_tick) ? match_tick->_buy_tick : buy_book->bestTick();
             int level_num = 0;
@@ -141,28 +159,35 @@ class MakeSnapshot
 
         inline MDRapidSnapshot* getSnapshot() { return &_snap; }
 
-        inline std::string printBuyLevel(int64_t id)
+        inline std::string print()
         {
             std::ostringstream ss;
-            ss << "buy id:" << id;
+            ss << "code:" << _snap.security_code
+                << " id:" << _snap.id
+                << " orig_time:" << _snap.orig_time
+                << " last_price:" << _snap.last_price
+                << " pre_close_price:" << _snap.pre_close_price
+                << " open_price:" << _snap.open_price
+                << " high_price:" << _snap.high_price
+                << " low_price:" << _snap.low_price
+                << " close_price:" << _snap.close_price
+                << " volume:" << _snap.volume
+                << " turnover:" << _snap.turnover
+                << " high_limited:" << _snap.high_limited
+                << " low_limited:" << _snap.low_limited;
+ 
+            for (int i = 0; i < ConstField::kPositionParidLevelLen; ++i)
+            {
+                ss << " b" << i + 1 << "=" << _snap.bid_price[i] << "/" << _snap.bid_volume[i];
+                ss << " s" << i + 1 << "=" << _snap.offer_price[i] << "/" << _snap.offer_volume[i];
+            }
 
             for (int i = 0; i < ConstField::kPositionParidLevelLen; ++i)
             {
-                ss << " " << i + 1 << "=" << _snap.bid_price[i] << "/" << _snap.bid_volume[i];
+                ss << " bo" << i + 1 << "=" << _snap.bid_order[i];
+                ss << " so" << i + 1 << "=" << _snap.offer_order[i];
             }
-            ss << "\n";
-            return ss.str();
-        }
 
-        inline std::string printSellLevel(int64_t id)
-        {
-            std::ostringstream ss;
-            ss << "sell id:" << id;
-
-            for (int i = 0; i < ConstField::kPositionParidLevelLen; ++i)
-            {
-                ss << " " << i + 1 << "=" << _snap.offer_price[i] << "/" << _snap.offer_volume[i];
-            }
             ss << "\n";
             return ss.str();
         }

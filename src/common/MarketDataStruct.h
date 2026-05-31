@@ -111,6 +111,7 @@ namespace marketdata {
     {
         char security_code[ConstField::rSecurityCodeLen];    // 证券代码
         int64_t orig_time;                                   // 时间（YYYYMMDDHHMMSSsss)
+        int64_t id;                                          // 快照对应的逐笔id
         int64_t last_price;                                  // 最新价，实际值需除以1000000
         int64_t pre_close_price;                             // 昨收价，实际值需除以1000000
         int64_t open_price;                                  // 开盘价，实际值需除以1000000, 暂未更新
@@ -128,7 +129,7 @@ namespace marketdata {
         int64_t bid_order[ConstField::kPositionParidLevelLen];    // 委买挂单数量
         int64_t offer_order[ConstField::kPositionParidLevelLen];  // 委卖挂单数量
     };
-    // 8+(11*8)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)=132*8=1056
+    // 8+(11*9)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)=132*8=
 
     /**
      * @name 现货快照数据信息结构定义
