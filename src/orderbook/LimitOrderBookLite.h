@@ -30,12 +30,13 @@ namespace marketdata
     class LimitOrderBookLite
     {
     public:
-        explicit LimitOrderBookLite(const std::string date,
-                                    const std::string code,
+        explicit LimitOrderBookLite(const std::string &date,
+                                    const std::string &code,
+                                    const uint8_t exchange,
                                     const int64_t per_close_price,
                                     const int64_t min_price,
                                     const int64_t max_price):
-            _date(date), _code(code),
+            _date(date), _code(code), _exchange(exchange),
             per_close(per_close_price),
             buy_book(min_price, max_price, 10000, code),
             sell_book(min_price, max_price, 10000, code),
@@ -51,8 +52,8 @@ namespace marketdata
 
             // 2023年4月10日 全面注册制+主板价格笼子
             // 主板、科创板、创业板均改外超过价格笼子即废单处理 （佐证材料：“当委托进入交易系统时，如果其价格超过有效价格范围或价格限制，该委托将被视为无效。”——引自证监会）
-            if (((date >= "20200612" && !code.empty() && code[0] == '3')) ||
-                (code.size() >= 2 && code[0] == '6' && code[1] == '8'))
+            if (((date >= "20200612" && !code.empty() && code[0] == '3' && exchange == 0)) ||
+                (code.size() >= 2 && code[0] == '6' && code[1] == '8' && exchange == 1))
             {
                 LOG_INFO(app_log::logger(), "enable price cage, date:{} code:{}", date, code);
                 this->enablePriceCage(true, false);
@@ -121,7 +122,7 @@ namespace marketdata
             return last_price;
         }
 
-        inline void processOrder(const MDOrder *order)
+        inline void processOrder(const Order *order)
         {
             if (order == nullptr)
             {
@@ -129,7 +130,7 @@ namespace marketdata
             }
 
             int64_t orderID = order->appl_seq_num;
-            int64_t time = order->datetime % 1000000000L;
+            int64_t time = order->time;
 
             if (order->channel_no < 10)
             {
@@ -225,34 +226,19 @@ namespace marketdata
             }
         };
 
-        inline void processTrade(const MDTrade *trade)
+        inline void processTrade(const Trade *trade)
         {
             if (trade == nullptr)
             {
                 return;
             }
             // std::string code = trade->security_code;
-            int64_t time = trade->datetime % 1000000000L;
+            int64_t time = trade->time;
 
             if (trade->channel_no < 10)
             {
-                // order,600171,20241009143603020,30120000,2600,21374112,S,A,34026607,3 
-                // trade,600171,20241009143603020,30120000,1200,34026606,21373895,21374112,S,-,34026610,3
-                // trade,600171,20241009143603100,30120000,200,34026759,21374209,21374112,B,-,34026760,3 
-                // trade,600171,20241009143603120,30120000,300,34026796,21374232,21374112,B,-,34026796,3 
-                // trade,600171,20241009143603140,30120000,700,34026860,21374268,21374112,B,-,34026860,3 
-                // trade,600171,20241009143603190,30120000,400,34026930,21374304,21374112,B,-,34026930,3 
-                // trade,600171,20241009143603190,30120000,300,34026954,21374318,21374112,B,-,34026950,3 
-                // trade,600171,20241009143603190,30120000,100,34026955,21374319,21374112,B,-,34026956,3 
-                // trade,600171,20241009143603310,30120000,300,34027163,21374456,21374112,B,-,34027164,3 
-                // trade,600171,20241009143603330,30120000,100,34027232,21374501,21374112,B,-,34027230,3 
-                // trade,600171,20241009143603380,30120000,100,34027306,21374531,21374112,B,-,34027304,3 
-                // trade,600171,20241009143603430,30120000,100,34027363,21374574,21374112,B,-,34027364,3
-                // 主买 bid_appl_seq_num > offer_appl_seq_num or side=B 只存在卖单
-                // 主卖 bid_appl_seq_num < offer_appl_seq_num or side=S 只存在买单
-
                 // 连续竞价阶段
-                if (time >= 93000000L && time < 145700000L)
+                if (time >= 93000000000000L && time < 145700000000000L)
                 {
                     // 更新最新成交价
                     setLastPrice(trade->price);
@@ -281,13 +267,13 @@ namespace marketdata
                     }
                 }
                 // 开盘集合竞价阶段
-                else if (time < 93000000L)
+                else if (time < 93000000000000L)
                 {
                     dropOrder(trade->bid_appl_seq_num, trade->volume, time, OrderSideType::BUY);
                     dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL);
                 }
                 // 收盘集合竞价阶段
-                else if (time >= 145700000L)
+                else if (time >= 145700000000000L)
                 {
                     dropOrder(trade->bid_appl_seq_num, trade->volume, time, OrderSideType::BUY, true);
                     dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL, true);
@@ -436,7 +422,7 @@ namespace marketdata
                 upper = std::max(upper_by_ratio, upper_by_tick);
             }
 
-            return static_cast<int64_t>(roundTo(upper, 2) * 1000000);
+            return static_cast<int64_t>(std::llround(roundTo(upper, 2) * 1000000));
         }
 
         inline int64_t getSellCageLowerPrice(int64_t base_price) const
@@ -451,7 +437,7 @@ namespace marketdata
                 lower = std::min(lower_by_ratio, lower_by_tick);
             }
 
-            return static_cast<int64_t>(roundTo(lower, 2) * 1000000);
+            return static_cast<int64_t>(std::llround(roundTo(lower, 2) * 1000000));
         }
 
         // 检查买单价格是否在笼子内: price <= 笼子上限
@@ -687,7 +673,7 @@ namespace marketdata
             if (side_type == OrderSideType::BUY)
             {
                 // 价格笼子检查：买单价格 <= 有效上限（主板max(102%, +10tick)，科创/创业板102%）
-                if (price_cage_enabled && time >= 93000000L && time < 145700000L && !isBuyPriceInCage(price))
+                if (price_cage_enabled && time >= 93000000000000L && time < 145700000000000L && !isBuyPriceInCage(price))
                 {
                     // 超出笼子范围，加入临时book
                     PriceLevel* lv = pending_buy_book.getOrCreate(price);
@@ -702,7 +688,7 @@ namespace marketdata
             else if (side_type == OrderSideType::SELL)
             {
                 // 价格笼子检查：卖单价格 >= 有效下限（主板min(98%, -10tick)，科创/创业板98%）
-                if (price_cage_enabled && time >= 93000000L && time < 145700000L && !isSellPriceInCage(price))
+                if (price_cage_enabled && time >= 93000000000000L && time < 145700000000000L && !isSellPriceInCage(price))
                 {
                     // 超出笼子范围，加入临时book
                     PriceLevel* lv = pending_sell_book.getOrCreate(price);
@@ -861,6 +847,7 @@ namespace marketdata
         int64_t current_bid1_price = 0;
         int64_t current_ask1_price = 0;
 
+        uint8_t _exchange;
         std::string _date = "";
         std::string _code = "";
     

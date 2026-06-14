@@ -86,22 +86,9 @@ static inline std::size_t worker_index_for_security_key(SecurityKey key,
     return static_cast<std::size_t>(mix_security_key(key) % worker_count);
 }
 
-static inline char exchangeIdFromChannelNo(int32_t channelNo) noexcept
+static inline SecurityKey makeSecurityKey(uint8_t exchange, const char* securityCode) noexcept
 {
-    if (channelNo < 10)
-    {
-        return '1';
-    }
-    if (channelNo > 2000)
-    {
-        return '2';
-    }
-    return '\0';
-}
-
-static inline SecurityKey makeSecurityKey(int32_t channelNo, const char* securityCode) noexcept
-{
-    return encode_security_key(exchangeIdFromChannelNo(channelNo), securityCode);
+    return encode_security_key(exchange, securityCode);
 }
 
 inline WorkerConfig makeWorkerConfig(
@@ -117,20 +104,20 @@ inline WorkerConfig makeWorkerConfig(
 }
 
 static constexpr int64_t kScopedSeqBase = 10'000'000'000'000LL;
-// 用于处理同一个pool里不同channel相同seq冲突的问题
-// channelNo不能大于9999，seq不能大于9'000'000'000'000否则有溢出风险
-static inline int64_t makeScopedSeq(int32_t channelNo, int64_t rawSeq) noexcept
+// 用于处理同一个pool里不同exchange相同seq冲突的问题
+// exchange不能大于9999，seq不能大于9'000'000'000'000否则有溢出风险
+static inline int64_t makeScopedSeq(uint8_t exchange, int64_t rawSeq) noexcept
 {
-    return kScopedSeqBase * static_cast<int64_t>(channelNo) + rawSeq;
+    return kScopedSeqBase * static_cast<int64_t>(exchange) + rawSeq;
 }
 
-static inline int64_t restoreScopedSeq(int32_t channelNo, int64_t scopedSeq) noexcept
+static inline int64_t restoreScopedSeq(uint8_t exchange, int64_t scopedSeq) noexcept
 {
     if (scopedSeq <= 0)
     {
         return scopedSeq;
     }
-    return scopedSeq - kScopedSeqBase * static_cast<int64_t>(channelNo);
+    return scopedSeq - kScopedSeqBase * static_cast<int64_t>(exchange);
 }
 
 
@@ -140,8 +127,8 @@ class Workers
 public:
     struct SingleWorker;
     using WorkerContext = SingleWorker;
-    using OrderCallback = std::function<void(WorkerContext *, const marketdata::MDOrder *)>;
-    using TradeCallback = std::function<void(WorkerContext *, const marketdata::MDTrade *)>;
+    using OrderCallback = std::function<void(WorkerContext *, const marketdata::Order *)>;
+    using TradeCallback = std::function<void(WorkerContext *, const marketdata::Trade *)>;
     using MatchCallback = std::function<void(WorkerContext *, const std::string &, const marketdata::MatchRecord *)>;
 
     struct WorkerStats
@@ -168,8 +155,8 @@ private:
     {
         union Payload
         {
-            marketdata::MDOrder order;
-            marketdata::MDTrade trade;
+            marketdata::Order order;
+            marketdata::Trade trade;
 
             Payload()
             {
@@ -218,7 +205,7 @@ private:
             return *this;
         }
 
-        static WorkerMessage fromOrder(const marketdata::MDOrder &order)
+        static WorkerMessage fromOrder(const marketdata::Order &order)
         {
             WorkerMessage message;
             message.type = MessageType::ORDER;
@@ -226,7 +213,7 @@ private:
             return message;
         }
 
-        static WorkerMessage fromTrade(const marketdata::MDTrade &trade)
+        static WorkerMessage fromTrade(const marketdata::Trade &trade)
         {
             WorkerMessage message;
             message.type = MessageType::TRADE;
@@ -257,28 +244,22 @@ public:
     private:
         struct OrderbookHolder
         {
-            int32_t channelNo = 0;
+            uint8_t exchange;
             std::string code;
             std::unique_ptr<T> orderbook;
         };
 
         inline void initPool()
         {
-            if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>
-                || std::is_same_v<T, marketdata::MatchingEngine>
-                || std::is_same_v<T, marketdata::LimitOrderBookLite>)
+            if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>)
             {
-                if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>
-                    || std::is_same_v<T, marketdata::MatchingEngine>)
-                {
-                    m_order_pool = std::make_shared<marketdata::OrderPool>();
-                }
+                m_order_pool = std::make_shared<marketdata::OrderPool>();
             }
         }
 
-        inline std::unique_ptr<T> createOrderbook(int32_t channelNo, const std::string &code)
+        inline std::unique_ptr<T> createOrderbook(uint8_t exchange, const std::string &code)
         {
-            (void)channelNo;
+            (void)exchange;
 
             if (!m_open_before_map)
             {
@@ -291,8 +272,7 @@ public:
                 return nullptr;
             }
 
-            if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>
-                || std::is_same_v<T, marketdata::MatchingEngine>)
+            if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>)
             {
                 if (!m_order_pool)
                 {
@@ -302,6 +282,7 @@ public:
                 return std::make_unique<T>(
                     m_date,
                     code,
+                    exchange,
                     m_order_pool,
                     iter->second.per_close,
                     iter->second.limit_down_price,
@@ -312,6 +293,7 @@ public:
                 return std::make_unique<T>(
                     m_date,
                     code,
+                    exchange,
                     iter->second.per_close,
                     iter->second.limit_down_price,
                     iter->second.limit_up_price);
@@ -322,49 +304,48 @@ public:
             }
         }
 
-        // worker 内部真实主键改成 channel+code，避免同代码跨市场/跨通道时互相覆盖。
-        inline T *getOrCreateOrderbook(SecurityKey key, int32_t channelNo, const char* security_code)
+        // worker 内部真实主键改成 exchange+code，避免同代码跨市场/跨通道时互相覆盖。
+        inline T *getOrCreateOrderbook(SecurityKey key, uint8_t exchange, const char* security_code)
         {
             auto iter = m_orderbooks.find(key);
             if (iter == m_orderbooks.end())
             {
                 const std::string code = normalizeSecurityCode(security_code);
                 OrderbookHolder holder;
-                holder.channelNo = channelNo;
+                holder.exchange = exchange;
                 holder.code = code;
-                holder.orderbook = createOrderbook(channelNo, code);
+                holder.orderbook = createOrderbook(exchange, code);
                 auto [it, _] = m_orderbooks.emplace(key, std::move(holder));
                 iter = it;
-                bindMatchCallback(iter->second.channelNo, iter->second.code, iter->second.orderbook.get());
+                bindMatchCallback(iter->second.exchange, iter->second.code, iter->second.orderbook.get());
             }
             return iter->second.orderbook.get();
         }
 
-        inline void bindMatchCallback(int32_t channelNo, const std::string &code, T *orderbook)
+        inline void bindMatchCallback(uint8_t exchange, const std::string &code, T *orderbook)
         {
-            if constexpr (std::is_same_v<T, marketdata::MatchingEngine> ||
-                          std::is_same_v<T, marketdata::LimitOrderBook>)
+            if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>)
             {
                 if (orderbook == nullptr)
                 {
                     return;
                 }
 
-                orderbook->setMatchCallback([this, channelNo, code](const marketdata::MatchRecord &record)
+                orderbook->setMatchCallback([this, exchange, code](const marketdata::MatchRecord &record)
                 {
                     if (m_matchCallback)
                     {
                         marketdata::MatchRecord callbackRecord = record;
-                        callbackRecord.channel_no = channelNo;
-                        callbackRecord.bid_order_id = restoreScopedSeq(channelNo, callbackRecord.bid_order_id);
-                        callbackRecord.offer_order_id = restoreScopedSeq(channelNo, callbackRecord.offer_order_id);
+                        callbackRecord.exchange = exchange;
+                        callbackRecord.bid_order_id = restoreScopedSeq(exchange, callbackRecord.bid_order_id);
+                        callbackRecord.offer_order_id = restoreScopedSeq(exchange, callbackRecord.offer_order_id);
                         m_matchCallback(code, callbackRecord);
                     }
                 });
             }
             else
             {
-                (void)channelNo;
+                (void)exchange;
                 (void)code;
                 (void)orderbook;
             }
@@ -400,39 +381,38 @@ public:
             initPool();
         }
 
-        T *getOrderbookPtr(int32_t channelNo, const char *securityCode)
+        T *getOrderbookPtr(uint8_t exchange, const char *securityCode)
         {
             if (securityCode == nullptr)
             {
                 return nullptr;
             }
 
-            const SecurityKey key = makeSecurityKey(channelNo, securityCode);
+            const SecurityKey key = makeSecurityKey(exchange, securityCode);
             auto iter = m_orderbooks.find(key);
             return iter == m_orderbooks.end() ? nullptr : iter->second.orderbook.get();
         }
 
-        const T *getOrderbookPtr(int32_t channelNo, const char *securityCode) const
+        const T *getOrderbookPtr(uint8_t exchange, const char *securityCode) const
         {
             if (securityCode == nullptr)
             {
                 return nullptr;
             }
 
-            const SecurityKey key = makeSecurityKey(channelNo, securityCode);
+            const SecurityKey key = makeSecurityKey(exchange, securityCode);
             auto iter = m_orderbooks.find(key);
             return iter == m_orderbooks.end() ? nullptr : iter->second.orderbook.get();
         }
 
         void setMatchCallback(InnerMatchCallback callback)
         {
-            if constexpr (std::is_same_v<T, marketdata::MatchingEngine> ||
-                          std::is_same_v<T, marketdata::LimitOrderBook>)
+            if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>)
             {
                 m_matchCallback = std::move(callback);
                 for (auto &[_, holder] : m_orderbooks)
                 {
-                    bindMatchCallback(holder.channelNo, holder.code, holder.orderbook.get());
+                    bindMatchCallback(holder.exchange, holder.code, holder.orderbook.get());
                 }
             }
             else
@@ -441,7 +421,7 @@ public:
             }
         }
 
-        bool onOrderDetail(const marketdata::MDOrder *order)
+        bool onOrderDetail(const marketdata::Order *order)
         {
             if (order == nullptr || order->volume <= 0)
             {
@@ -453,8 +433,8 @@ public:
                 return false;
             }
 
-            const SecurityKey key = makeSecurityKey(order->channel_no, order->security_code);
-            T *lob = getOrCreateOrderbook(key, order->channel_no, order->security_code);
+            const SecurityKey key = makeSecurityKey(order->market_type, order->security_code);
+            T *lob = getOrCreateOrderbook(key, order->market_type, order->security_code);
             if (lob == nullptr)
             {
                 return false;
@@ -463,7 +443,7 @@ public:
             return true;
         }
 
-        bool onTransaction(const marketdata::MDTrade *trade)
+        bool onTransaction(const marketdata::Trade *trade)
         {
             if (trade == nullptr || trade->volume <= 0)
             {
@@ -475,8 +455,8 @@ public:
                 return false;
             }
 
-            const SecurityKey key = makeSecurityKey(trade->channel_no, trade->security_code);
-            T *lob = getOrCreateOrderbook(key, trade->channel_no, trade->security_code);
+            const SecurityKey key = makeSecurityKey(trade->market_type, trade->security_code);
+            T *lob = getOrCreateOrderbook(key, trade->market_type, trade->security_code);
             if (lob == nullptr)
             {
                 return false;
@@ -503,7 +483,7 @@ public:
         std::string m_date;
         std::shared_ptr<const std::unordered_map<std::string, LOBBaseOpenBeforeData>> m_open_before_map;
         std::shared_ptr<marketdata::OrderPool> m_order_pool;
-        // 同一个 worker 内允许出现同 code 的多个 orderbook，因此 map key 必须带 channel 信息。
+        // 同一个 worker 内允许出现同 code 的多个 orderbook，因此 map key 必须带 market_type 信息。
         std::unordered_map<SecurityKey, OrderbookHolder> m_orderbooks;
         InnerMatchCallback m_matchCallback;
     };
@@ -622,17 +602,17 @@ public:
         refreshMatchCallbacks();
     }
 
-    bool onOrderDetail(const marketdata::MDOrder *order)
+    bool onOrderDetail(const marketdata::Order *order)
     {
         return submitOrder(order);
     }
 
-    bool onTransaction(const marketdata::MDTrade *trade)
+    bool onTransaction(const marketdata::Trade *trade)
     {
         return submitTrade(trade);
     }
 
-    bool submitOrder(const marketdata::MDOrder *order)
+    bool submitOrder(const marketdata::Order *order)
     {
         if (order == nullptr)
         {
@@ -641,7 +621,7 @@ public:
         return submitOrder(*order);
     }
 
-    bool submitTrade(const marketdata::MDTrade *trade)
+    bool submitTrade(const marketdata::Trade *trade)
     {
         if (trade == nullptr)
         {
@@ -650,16 +630,16 @@ public:
         return submitTrade(*trade);
     }
 
-    bool submitOrder(const marketdata::MDOrder &order)
+    bool submitOrder(const marketdata::Order &order)
     {
-        if (m_skip_sse && order.security_code[0] == '6') return false;
-        return submitMessage(makeSecurityKey(order.channel_no, order.security_code), WorkerMessage::fromOrder(order));
+        if (m_skip_sse && order.market_type == 1) return false;
+        return submitMessage(makeSecurityKey(order.market_type, order.security_code), WorkerMessage::fromOrder(order));
     }
 
-    bool submitTrade(const marketdata::MDTrade &trade)
+    bool submitTrade(const marketdata::Trade &trade)
     {
-        if (m_skip_sse && trade.security_code[0] == '6') return false;
-        return submitMessage(makeSecurityKey(trade.channel_no, trade.security_code), WorkerMessage::fromTrade(trade));
+        if (m_skip_sse && trade.market_type == 1) return false;
+        return submitMessage(makeSecurityKey(trade.market_type, trade.security_code), WorkerMessage::fromTrade(trade));
     }
 
     WorkerContext *getLobGroup(int workerId)
@@ -674,15 +654,15 @@ public:
         return worker;
     }
 
-    WorkerContext *getLobGroupBySecurity(int32_t channelNo, const char* securityCode)
+    WorkerContext *getLobGroupBySecurity(uint8_t exchange, const char* securityCode)
     {
-        SingleWorker *worker = findWorker(makeSecurityKey(channelNo, securityCode));
+        SingleWorker *worker = findWorker(makeSecurityKey(exchange, securityCode));
         return worker;
     }
 
-    const WorkerContext *getLobGroupBySecurity(int32_t channelNo, const char* securityCode) const
+    const WorkerContext *getLobGroupBySecurity(uint8_t exchange, const char* securityCode) const
     {
-        const SingleWorker *worker = findWorker(makeSecurityKey(channelNo, securityCode));
+        const SingleWorker *worker = findWorker(makeSecurityKey(exchange, securityCode));
         return worker;
     }
 
@@ -794,7 +774,7 @@ private:
         {
             return nullptr;
         }
-        // 单 worker 时把所有盘口都交给当前 worker；多 worker 时再按 channel+code 做稳定分片。
+        // 单 worker 时把所有盘口都交给当前 worker；多 worker 时再按 exchange+code 做稳定分片。
         if (m_workers.size() == 1)
         {
             return m_workers.front().get();
@@ -828,34 +808,33 @@ private:
         return m_workers[workerId].get();
     }
 
-    inline static void scopeOrderIds(marketdata::MDOrder &order) noexcept
+    inline static void scopeOrderIds(marketdata::Order &order) noexcept
     {
         if (order.appl_seq_num > 0)
         {
-            order.appl_seq_num = makeScopedSeq(order.channel_no, order.appl_seq_num);
+            order.appl_seq_num = makeScopedSeq(order.market_type, order.appl_seq_num);
         }
     }
 
-    inline static void scopeTradeIds(marketdata::MDTrade &trade) noexcept
+    inline static void scopeTradeIds(marketdata::Trade &trade) noexcept
     {
         if (trade.appl_seq_num > 0)
         {
-            trade.appl_seq_num = makeScopedSeq(trade.channel_no, trade.appl_seq_num);
+            trade.appl_seq_num = makeScopedSeq(trade.market_type, trade.appl_seq_num);
         }
         if (trade.bid_appl_seq_num > 0)
         {
-            trade.bid_appl_seq_num = makeScopedSeq(trade.channel_no, trade.bid_appl_seq_num);
+            trade.bid_appl_seq_num = makeScopedSeq(trade.market_type, trade.bid_appl_seq_num);
         }
         if (trade.offer_appl_seq_num > 0)
         {
-            trade.offer_appl_seq_num = makeScopedSeq(trade.channel_no, trade.offer_appl_seq_num);
+            trade.offer_appl_seq_num = makeScopedSeq(trade.market_type, trade.offer_appl_seq_num);
         }
     }
 
     inline void refreshMatchCallbacks()
     {
-        if constexpr (std::is_same_v<T, marketdata::MatchingEngine> ||
-                      std::is_same_v<T, marketdata::LimitOrderBook>)
+        if constexpr (std::is_same_v<T, marketdata::LimitOrderBook>)
         {
             for (auto &workerPtr : m_workers)
             {
@@ -884,7 +863,7 @@ private:
 
             if (message.type == MessageType::ORDER)
             {
-                marketdata::MDOrder scopedOrder = message.payload.order;
+                marketdata::Order scopedOrder = message.payload.order;
                 scopeOrderIds(scopedOrder);
                 worker.onOrderDetail(&scopedOrder);
                 if (m_orderCallback)
@@ -894,7 +873,7 @@ private:
             }
             else if (message.type == MessageType::TRADE)
             {
-                marketdata::MDTrade scopedTrade = message.payload.trade;
+                marketdata::Trade scopedTrade = message.payload.trade;
                 scopeTradeIds(scopedTrade);
                 worker.onTransaction(&scopedTrade);
                 if (m_tradeCallback)
@@ -974,11 +953,9 @@ private:
 
 using WorkersLimitOrderBook = Workers<marketdata::LimitOrderBook>;
 using WorkersLimitOrderBookLite = Workers<marketdata::LimitOrderBookLite>;
-using WorkersMatchingEngine = Workers<marketdata::MatchingEngine>;
 template<typename LobType>
 using LOBGroup = typename Workers<LobType>::WorkerContext;
 using LOBGroupLimitOrderBook = LOBGroup<marketdata::LimitOrderBook>;
 using LOBGroupLimitOrderBookLite = LOBGroup<marketdata::LimitOrderBookLite>;
-using LOBGroupMatchingEngine = LOBGroup<marketdata::MatchingEngine>;
 
 #endif

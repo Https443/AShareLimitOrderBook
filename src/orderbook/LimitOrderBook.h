@@ -39,11 +39,12 @@ namespace marketdata
     public:
         explicit LimitOrderBook(const std::string &date, 
                                 const std::string &code, 
+                                const uint8_t exchange,
                                 std::shared_ptr<OrderPool> poolPtr,
                                 const int64_t pre_close_price,
                                 const int64_t min_price,
                                 const int64_t max_price): 
-            _date(date), _code(code), _pool(poolPtr),
+            _date(date), _code(code), _exchange(exchange), _pool(poolPtr),
             _pre_close_price(pre_close_price),
             _buy_book(min_price, max_price, 10000, code),
             _sell_book(min_price, max_price, 10000, code),
@@ -69,8 +70,8 @@ namespace marketdata
             // 全面注册制+主板价格笼子
             // 主板、科创板、创业板均改外超过价格笼子即废单处理 （佐证材料：“当委托进入交易系统时，如果其价格超过有效价格范围或价格限制，该委托将被视为无效。”——引自证监会）
 
-            if (((date >= "20200612" && !code.empty() && code[0] == '3')) ||
-                (code.size() >= 2 && code[0] == '6' && code[1] == '8'))
+            if (((date >= "20200612" && !code.empty() && code[0] == '3' && exchange == 0)) ||
+                (code.size() >= 2 && code[0] == '6' && code[1] == '8' && exchange == 1))
             {
                 LOG_INFO(app_log::logger(), "enable price cage, date:{} code:{}", date, code);
                 _price_cage_enabled = true;
@@ -83,11 +84,11 @@ namespace marketdata
                 _price_cage_Amain = true;
             }
 
-            if (!code.empty() && (code.starts_with("00") || code.starts_with("30")))
+            if (exchange == 0)
             {
                 _current_exchange = ExchangeType::SZ;
             }
-            else if (!code.empty() && (code.starts_with("60") || code.starts_with("68")))
+            else if (exchange == 1)
             {
                 _current_exchange = ExchangeType::SH;
             }
@@ -151,13 +152,13 @@ namespace marketdata
 
         inline const MatchingStartTick* getMatchStartTick() const { return &_match_tick; }
 
-        inline void processOrder(const MDOrder *order)
+        inline void processOrder(const Order *order)
         {
             if (order == nullptr)
             {
                 return;
             }
-            int64_t time = order->datetime % 1000000000L;
+            int64_t time = order->time;
             TradingPhase phase = determinePhase(time);
             handlePhaseTransition(phase, time);
             _current_id = order->appl_seq_num;
@@ -196,6 +197,16 @@ namespace marketdata
                     int64_t sell_best_price = _sell_book.bestPrice();
                     _price_cage.set(buy_best_price, sell_best_price, _last_price);
                     checkAndMovePendingOrders();
+                }
+                
+                // 集合竞价期间模拟撮合最新价
+                if (phase == TradingPhase::OPEN_CALL_AUCTION)
+                {
+                    _last_price = calculateAuctionPrice(true);
+                }
+                else if (phase == TradingPhase::CLOSE_CALL_AUCTION)
+                {
+                    _last_price = calculateAuctionPrice(false);
                 }
             }
             else if (order->channel_no > 2000)
@@ -290,17 +301,17 @@ namespace marketdata
                 checkAndMovePendingOrders();
 
                 // 模拟撮合
-                tryMatchCrossedMainBook(order->datetime);
+                tryMatchCrossedMainBook(order->time);
             }
         };
 
-        inline void processTrade(const MDTrade *trade)
+        inline void processTrade(const Trade *trade)
         {
             if (trade == nullptr)
             {
                 return;
             }
-            int64_t time = trade->datetime % 1000000000L;
+            int64_t time = trade->time;
             TradingPhase phase = determinePhase(time);
             handlePhaseTransition(phase, time);
             _current_id = trade->appl_seq_num;
@@ -311,7 +322,7 @@ namespace marketdata
                 // 主卖 bid_appl_seq_num < offer_appl_seq_num or side=S 只存在买单
 
                 // 连续竞价阶段
-                if (time >= 93000000L && time < 145700000L)
+                if (time >= 93000000000000L && time < 145700000000000L)
                 {
                     // 更新最新成交价
                     _last_price = trade->price;
@@ -341,13 +352,13 @@ namespace marketdata
                     }
                 }
                 // 开盘集合竞价阶段
-                else if (time < 93000000L)
+                else if (time < 93000000000000L)
                 {
                     dropOrder(trade->bid_appl_seq_num, trade->volume, time, OrderSideType::BUY);
                     dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL);
                 }
                 // 收盘集合竞价阶段
-                else if (time >= 145700000L)
+                else if (time >= 145700000000000L)
                 {
                     dropOrder(trade->bid_appl_seq_num, trade->volume, time, OrderSideType::BUY, false, true);
                     dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL, false, true);
@@ -384,6 +395,19 @@ namespace marketdata
                         if (_skip_ids.find(trade->offer_appl_seq_num) != _skip_ids.end()) return;
                         dropOrder(trade->offer_appl_seq_num, trade->volume, time, OrderSideType::SELL, true);
                     }
+
+                    // 集合竞价期间模拟撮合最新价
+                    if (phase == TradingPhase::OPEN_CALL_AUCTION)
+                    {
+                        _last_price = calculateAuctionPrice(true);
+                        _match_last_price = _last_price;
+                    }
+                    else if (phase == TradingPhase::CLOSE_CALL_AUCTION)
+                    {
+                        _last_price = calculateAuctionPrice(false);
+                        _match_last_price = _last_price;
+                    }
+
                     if (!hasCrossedMainBook())
                     {
                         int64_t buy_best_price = _buy_book.bestPrice();
@@ -393,7 +417,7 @@ namespace marketdata
                         checkAndMovePendingOrders();
                     }
                     // 模拟撮合
-                    tryMatchCrossedMainBook(trade->datetime);
+                    tryMatchCrossedMainBook(trade->time);
                 }
                 // 成交
                 else if (trade->exec_type == 'F')
@@ -413,7 +437,7 @@ namespace marketdata
                     _volumes += trade->volume;
                     _turnover += trade->volume * trade->price;
                     // 真实成交会改变主簿；若上一条订单触发过模拟撮合，需要在这里清理或继续撮合。
-                    tryMatchCrossedMainBook(trade->datetime);
+                    tryMatchCrossedMainBook(trade->time);
                 }
             }
         };
@@ -675,7 +699,7 @@ namespace marketdata
 
         inline bool isContinuousCageTime() const
         {
-            return _current_time >= 93000000L && _current_time < 145700000L;
+            return _current_time >= 93000000000000L && _current_time < 145700000000000L;
         }
 
         /**
@@ -1115,7 +1139,7 @@ namespace marketdata
                     [](const AuctionCandidate& a, const AuctionCandidate& b){ return a.price < b.price; });
                 double middle_price = (static_cast<double>(finalists.front().price) / 1000000.0 +
                                        static_cast<double>(finalists.back().price) / 1000000.0) / 2.0;
-                return static_cast<int64_t>(roundTo(middle_price, 2) * 1000000);
+                return static_cast<int64_t>(std::llround(roundTo(middle_price, 2) * 1000000));
             }
             else if (_current_exchange == ExchangeType::SZ)
             {
@@ -1282,19 +1306,19 @@ namespace marketdata
          */
         TradingPhase determinePhase(int64_t time) const
         {
-            if (time < 91500000L)
+            if (time < 91500000000000L)
                 return TradingPhase::PRE_OPEN;
-            else if (time >= 91500000L && time < 92500000L)
+            else if (time >= 91500000000000L && time < 92500000000000L)
                 return TradingPhase::OPEN_CALL_AUCTION;
-            else if (time >= 92500000L && time < 93000000L)
+            else if (time >= 92500000000000L && time < 93000000000000L)
                 return TradingPhase::OPEN_CALL_MATCH;
-            else if (time >= 93000000L && time < 113000000L)
+            else if (time >= 93000000000000L && time < 113000000000000L)
                 return TradingPhase::CONTINUOUS_TRADING;
-            else if (time >= 113000000L && time < 130000000L)
+            else if (time >= 113000000000000L && time < 130000000000000L)
                 return TradingPhase::PRE_OPEN;  // 午休
-            else if (time >= 130000000L && time < 145700000L)
+            else if (time >= 130000000000000L && time < 145700000000000L)
                 return TradingPhase::CONTINUOUS_TRADING;
-            else if (time >= 145700000L && time < 150000000L)
+            else if (time >= 145700000000000L && time < 150000000000000L)
                 return TradingPhase::CLOSE_CALL_AUCTION;
             else
                 return TradingPhase::CLOSED;
@@ -1367,6 +1391,7 @@ namespace marketdata
         std::unordered_set<uint32_t> _match_changed_order_node_slots; // 撮合期间修改的OrderNode的Slot
 
         TradingPhase _current_phase = TradingPhase::PRE_OPEN;
+        uint8_t _exchange;
         std::string _date = "";
         std::string _code = "";    
     };

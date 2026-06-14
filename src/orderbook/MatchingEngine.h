@@ -57,12 +57,13 @@ namespace marketdata
 
     public:
         MatchingEngine(const std::string &date, 
-                                 const std::string &code, 
-                                 std::shared_ptr<OrderPool> poolPtr,
-                                 const int64_t pre_close_price,
-                                 const int64_t min_price,
-                                 const int64_t max_price): 
-            _date(date), _code(code), _pool(poolPtr),
+                       const std::string &code, 
+                       const uint8_t exchange,
+                       std::shared_ptr<OrderPool> poolPtr,
+                       const int64_t pre_close_price,
+                       const int64_t min_price,
+                       const int64_t max_price): 
+            _date(date), _code(code), _exchange(exchange), _pool(poolPtr),
             _pre_close_price(pre_close_price),
             _buy_book(min_price, max_price, 10000, code),
             _sell_book(min_price, max_price, 10000, code)
@@ -73,8 +74,8 @@ namespace marketdata
                 STDTHROW(STD_ERROR_CODE, "OrderPool is null", "OrderPool is null");
             }
 
-            const bool is_cyb = (!code.empty() && code[0] == '3');
-            const bool is_kcb = (code.size() >= 2 && code[0] == '6' && code[1] == '8');
+            const bool is_cyb = (!code.empty() && code[0] == '3' && _exchange == 0);
+            const bool is_kcb = (code.size() >= 2 && code[0] == '6' && code[1] == '8' && _exchange == 1);
 
             // 2023-04-10 起：主板/创业板/科创板均采用价格笼子+超范围无效处理
             if (date >= "20230410")
@@ -121,7 +122,7 @@ namespace marketdata
 
             _price_cage.init(pre_close_price, _price_cage_Amain);
 
-            _current_exchange = (!code.empty() && (code[0] == '3' || code[0] == '0')) ? ExchangeType::SZ : (!code.empty() && code[0] == '6') ?ExchangeType::SH : ExchangeType::UNKNOWN;
+            _current_exchange = _exchange == 0 ? ExchangeType::SZ : (_exchange == 1) ? ExchangeType::SH : ExchangeType::UNKNOWN;
         }
 
         ~MatchingEngine()
@@ -252,7 +253,7 @@ namespace marketdata
 
         // ============ 订单接收 ============
 
-        inline void processOrder(const MDOrder *order)
+        inline void processOrder(const Order *order)
         {
             if (order == nullptr)
             {
@@ -266,20 +267,20 @@ namespace marketdata
             }
         };
 
-        inline void processTrade(const MDTrade *trade)
+        inline void processTrade(const Trade *trade)
         {
             if (trade == nullptr)
             {
                 return;
             }
             // std::string code = trade->security_code;
-            int64_t time = trade->datetime % 1000000000L;
+            int64_t time = trade->time;
 
             if (trade->channel_no > 2000)
             {
                 // 深交所，模拟撮合撤单
                 processSZCancel(trade);
-                if (time >= 150000000L && !_close_auction_statue)
+                if (time >= 150000000000000L && !_close_auction_statue)
                 {
                     finalize();
                     _close_auction_statue = true;
@@ -344,19 +345,19 @@ namespace marketdata
          */
         TradingPhase determinePhase(int64_t time) const
         {
-            if (time < 91500000L)
+            if (time < 91500000000000L)
                 return TradingPhase::PRE_OPEN;
-            else if (time >= 91500000L && time < 92500000L)
+            else if (time >= 91500000000000L && time < 92500000000000L)
                 return TradingPhase::OPEN_CALL_AUCTION;
-            else if (time >= 92500000L && time < 93000000L)
+            else if (time >= 92500000000000L && time < 93000000000000L)
                 return TradingPhase::OPEN_CALL_MATCH;
-            else if (time >= 93000000L && time < 113000000L)
+            else if (time >= 93000000000000L && time < 113000000000000L)
                 return TradingPhase::CONTINUOUS_TRADING;
-            else if (time >= 113000000L && time < 130000000L)
+            else if (time >= 113000000000000L && time < 130000000000000L)
                 return TradingPhase::PRE_OPEN;  // 午休
-            else if (time >= 130000000L && time < 145700000L)
+            else if (time >= 130000000000000L && time < 145700000000000L)
                 return TradingPhase::CONTINUOUS_TRADING;
-            else if (time >= 145700000L && time < 150000000L)
+            else if (time >= 145700000000000L && time < 150000000000000L)
                 return TradingPhase::CLOSE_CALL_AUCTION;
             else
                 return TradingPhase::CLOSED;
@@ -384,8 +385,8 @@ namespace marketdata
         inline bool isCancelAllowed(int64_t time) const
         {
             // 9:20-9:25、14:57-15:00 不接受撤单
-            if ((time >= 92000000L && time < 92500000L) ||
-                (time >= 145700000L && time < 150000000L))
+            if ((time >= 92000000000000L && time < 92500000000000L) ||
+                (time >= 145700000000000L && time < 150000000000000L))
             {
                 return false;
             }
@@ -452,7 +453,7 @@ namespace marketdata
                 upper = std::max(upper_by_ratio, upper_by_tick);
             }
 
-            return static_cast<int64_t>(roundTo(upper, 2) * 1000000);
+            return static_cast<int64_t>(std::llround(roundTo(upper, 2) * 1000000));
         }
 
         inline int64_t getSellCageLowerPrice(int64_t base_price) const
@@ -467,7 +468,7 @@ namespace marketdata
                 lower = std::min(lower_by_ratio, lower_by_tick);
             }
 
-            return static_cast<int64_t>(roundTo(lower, 2) * 1000000);
+            return static_cast<int64_t>(std::llround(roundTo(lower, 2) * 1000000));
         }
 
         /**
@@ -1441,7 +1442,7 @@ namespace marketdata
                     [](const AuctionCandidate& a, const AuctionCandidate& b){ return a.price < b.price; });
                 double middle_price = (static_cast<double>(finalists.front().price) / 1000000.0 +
                                        static_cast<double>(finalists.back().price) / 1000000.0) / 2.0;
-                return static_cast<int64_t>(roundTo(middle_price, 2) * 1000000);
+                return static_cast<int64_t>(std::llround(roundTo(middle_price, 2) * 1000000));
             }
             else if (_current_exchange == ExchangeType::SZ)
             {
@@ -1657,18 +1658,18 @@ namespace marketdata
 
         /**
          * @brief 处理深圳交易所订单
-         * @param order 订单数据指针（MDOrder结构）
+         * @param order 订单数据指针（Order结构）
          * @note 根据时间自动判断交易阶段：
          *       - 集合竞价阶段：仅接受限价单（order_type='2'）
          *       - 连续竞价阶段：限价单'2'、市价单'1'、本方最优'U'
          *       - 阶段切换时自动触发集合竞价撮合
          *       深圳买卖方向：'1'/'G'=买，'2'/'F'=卖
          */
-        inline void processSZOrder(const MDOrder* order)
+        inline void processSZOrder(const Order* order)
         {
             if (!order) return;
 
-            int64_t time = order->datetime % 1000000000L;
+            int64_t time = order->time;
             TradingPhase phase = determinePhase(time);
             handlePhaseTransition(phase, time);
 
@@ -1722,12 +1723,12 @@ namespace marketdata
          * @note 深圳撤单通过exec_type='4'的成交记录传递
          *       根据bid_appl_seq_num或offer_appl_seq_num确定要撤销的订单
          */
-        inline void processSZCancel(const MDTrade* trade)
+        inline void processSZCancel(const Trade* trade)
         {
             if (!trade) return;
             int64_t bid_id = trade->bid_appl_seq_num;
             int64_t offer_id = trade->offer_appl_seq_num;
-            int64_t time = trade->datetime % 1000000000L;
+            int64_t time = trade->time;
             TradingPhase phase = determinePhase(time);
             handlePhaseTransition(phase, time);
 
@@ -1757,11 +1758,11 @@ namespace marketdata
          * @param time 收尾时间（默认15:00:00.000）
          * @note 用于触发停留在集合竞价阶段时未被动触发的撮合
          */
-        inline void finalize(int64_t time = 150000000L)
+        inline void finalize(int64_t time = 150000000000000L)
         {
-            if (time < 150000000L)
+            if (time < 150000000000000L)
             {
-                time = 150000000L;
+                time = 150000000000000L;
             }
             handlePhaseTransition(TradingPhase::CLOSED, time);
         };
@@ -1807,6 +1808,7 @@ namespace marketdata
 
         MatchCallback _match_callback = nullptr;
         bool _close_auction_statue = false;  // 是否已集合竞价
+        uint8_t _exchange;
         std::string _date = "";
         std::string _code = "";
 

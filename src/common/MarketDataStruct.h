@@ -45,42 +45,43 @@ namespace marketdata {
     typedef char SecurityCodeType[ConstField::rSecurityCodeLen];
     /**  @} */
 
-    #pragma pack(push, 8)
-    struct MDOrder
+    #pragma pack(push, 1)
+    struct Order
     {
         uint8_t side;       // 买卖方向 (深圳市场:1-买 2-卖 G-借入 F-出借, 上海市场:B–买单 S–卖单)
         uint8_t order_type; // 订单类别 (深圳市场:1-市价 2-限价 U-本方最优, 上海市场:A–新增委托订单 D–删除委托订单，即撤单)
+        uint8_t market_type; // 交易所类型 0深圳 1上海
+        int32_t trading_day; // 交易日（YYYYMMDD）
         int32_t channel_no; // 频道号
-        // char    md_stream_id[ConstField::kMDStreamIDMaxLen];       // 行情类别
         char security_code[ConstField::rSecurityCodeLen]; // 证券代码
-        // int32_t market_type;                                       // 市场类型
-        int64_t datetime; // 时间（YYYYMMDDHHMMSSsss)
+        int64_t time; // 时间（HHMMSSsssnnnnnn)
+        int64_t recvtime; // 实际收到时间
         int64_t price;    // 委托价格，实际值需除以1000000
         int64_t volume;   // 深圳市场:委托数量, 上海市场:剩余委托数量
-        // int64_t order_no;                                           // 原始订单号(上海市场有效, 上交所在新增、删除订单时用以标识订单的唯一编号)
         int64_t appl_seq_num; // 频道索引
+        int64_t order_db_no; // 原始订单号(上海市场有效)
         int64_t biz_index;    // 业务序号
     };
-    // 1+1+4+8+8+8+8+8+8=54-> 54+2=56
+    // 75
 
-    struct MDTrade
+    struct Trade
     {
         uint8_t side;       // 买卖方向 (仅上海有效 B-外盘，主动买 S-内盘，主动卖 N-未知)(无效数据使用'-'填充)
         uint8_t exec_type;  // 成交类型 (仅深圳有效 4-撤销 F-成交)(无效数据使用'-'填充)
-        int32_t channel_no; // 频道号
-        // char    md_stream_id[ConstField::kMDStreamIDMaxLen];     // 行情类别
+        uint8_t market_type; // 交易所类型 0深圳 1上海
+        int32_t trading_day; // 交易日
+        int32_t channel_no; // 频道号（YYYYMMDD）
         char security_code[ConstField::rSecurityCodeLen]; // 证券代码
-        // int32_t market_type;                                     // 市场类型
-        int64_t datetime; // 时间（YYYYMMDDHHMMSSsss)
+        int64_t time; // 时间（HHMMSSsssnnnnnn)
+        int64_t recvtime; // 实际收到时间
         int64_t price;    // 成交价格，实际值需除以1000000, 深交所撤单时价格为0
         int64_t volume;   // 成交数量
-        // int64_t value_trade;                                     // 成交金额，实际值需除以1000000
-        int64_t appl_seq_num;       // 频道编号
+        int64_t appl_seq_num;       // 成交编号
         int64_t bid_appl_seq_num;   // 买方委托索引
         int64_t offer_appl_seq_num; // 卖方委托索引
         int64_t biz_index;          // 业务序号
     };
-    // 1+1+4+8+8+8+8+8+8+8+8=70-> 70+2=72
+    // 83
 
     struct MDSnapshot
     {
@@ -211,153 +212,6 @@ namespace marketdata {
     /**  @} */
     #pragma pack(pop)
 
-    
-    #pragma pack(push, 1)
-    struct Order
-    {
-        int status;                                       // 状态, 一个OrderStatus命名空间中定义，随着订单执行状态改变，包含在订单执行回报中
-        uint64_t add_time;                                // 订单创建时间, datetime.datetime对象，为后台时间，包含在订单执行回报中
-        int amount;                                       // 下单数量, 不管是买还是卖, 都是正数，下单立即返回，包含在订单执行回报中
-        int filled;                                       // 已经成交的股票数量, 正数，包含在订单执行回报中
-        char security_code[ConstField::rSecurityCodeLen]; // 股票代码，同下单请求的security参数，下单立即返回，包含在订单执行回报中
-        uint64_t order_id;                                // 订单ID，为M-Quant系统内部生成的订单id，非委托编号，下单/撤单立即返回，包含在订单执行回报中
-        double price;                                     // 委托价格，包含在订单执行回报中
-        double avg_cost;                                  // 平均成交价格, 已经成交的股票的平均成交价格(一个订单可能分多次成交)，包含在订单执行回报中
-        int side;                                         // 买卖方向,下单立即返回，包含在订单执行回报中,OrderSide命名空间中定义，如OrderSide::BUY
-        int action;                                       // 开平行为，OrderAction命名空间中定义，期货有效
-        int invest_type;                                  // 投资类型，InvestType命名空间中定义，报单立即返回，期货有效
-        int close_direction;                              // 平仓类型，CloseDirection命名空间中定义，报单立即返回，期货有效
-
-        int batch_no;            // 批次号，包含在订单执行回报中
-        uint64_t orig_order_id;  // 原始订单号，撤单订单有效，目前保留字段，撤单接口的返回值中该字段有效
-        char price_type[4];      // 价格类型，限价单或各种类型市价单等
-        char cancel_info[256];   // 废单原因，废单有效
-        int withdraw_amount;     // 撤单数量，包含在订单执行回报中
-        double business_balance; // 已成交金额，包含在订单执行回报中
-        double clear_balance;    // 成交费用，目前保留字段
-        char entrust_prop[4];    // 委托属性，包含在订单执行回报中
-                                // "0"// 买卖
-                                // "N"// ETF申赎
-                                // "f": // /债券质押
-        int entrust_type;        // 委托类型，包含在订单执行回报中，在EntrustType命名空间中定义
-        char algo_inst_id[64];   // 算法实例ID，由MQuant启动的算法实例相关订单中有此字段，包含在订单执行回报中
-        char error_code[8];      // 错误码
-        char inst_id[64];        // Mquant实例ID，仅查询订单返回
-        char trader_name[32];    // 交易员名
-        char entrust_no[64];     // 柜台委托编号，2019.11.19添加
-        int covered_flag;        // 期权备兑标志，OptionCoveredFlag命名空间中定义，2019.11.19添加，期权有效
-        int last_amount;         // 本次成交数量，仅推送有效，2020.3.2添加
-        double last_price;       // 本次成交价格，仅推送有效，2020.3.2添加
-        char fund_account[20];
-        char security_exchange[4]; // 市场,SecurityExchangeType命名空间中定义
-    };
-
-    struct Execution
-    {
-        uint64_t time;                                    // 成交时间，查询及推送返回
-        int amount;                                       // 成交数量，查询及推送返回
-        double price;                                     // 成交价格，查询及推送返回
-        char trade_id[64];                                // 柜台成交编号，2019.11.19新增，查询及推送返回
-        uint64_t order_id;                                // 订单id，查询及推送返回
-        char security_code[ConstField::rSecurityCodeLen]; // 股票代码，下单立即返回，查询及推送返回
-        int entrust_type;                                 // 委托类型，EntrustType命名空间中定义，查询及推送返回
-        double business_balance;                          // 成交金额，查询及推送返回
-        double cost_balance;                              // 成交费用，目前保留字段
-        uint64_t orig_order_id;                           // 原始订单号，撤单订单有效，目前保留字段
-        int side;                                         // 买/卖方向,OrderSide命名空间中定义，查询及推送返回
-        char algo_inst_id[64];                            // 算法实例ID，由MQuant启动的算法实例相关订单中有此字段，包含在订单执行回报中
-        char inst_id[64];                                 // Mquant实例ID，仅查询成交返回
-        char trader_name[32];                             // 交易员，查询及推送返回
-        int action;                                       // 开平行为，OrderAction命名空间中定义，期货有效
-        int invest_type;                                  // 投资类型，InvestType命名空间中定义，报单立即返回，期货有效
-        int close_direction;                              // 平仓类型，CloseDirection命名空间中定义，报单立即返回，期货有效
-        char entrust_no[64];                              // 柜台委托编号， 2019.11.19新增
-        char priceType[4];                                // 价格类型，限价单或各种类型市价单等
-        char fund_account[20];
-        char security_exchange[4]; // 市场,SecurityExchangeType命名空间中定义
-    };
-    /// 单只标的的持仓信息
-    struct Position
-    {
-        char security_code[ConstField::rSecurityCodeLen]; // 标的代码
-        double price;                                     // 最新行情价格
-        double hold_cost;                                 // 持仓成本价
-        uint64_t init_time;                               // 建仓时间，格式为 datetime.datetime,该字段目前保留
-        uint64_t transact_time;                           // 最后交易时间，格式为 datetime.datetime,该字段目前保留
-        int64_t total_amount;                             // 总仓位
-        int64_t closeable_amount;                         // 可卖出的仓位
-        int64_t locked_amount;                            // 冻结仓位，期货、期权中包含多头冻结+空头冻结
-        double value;                                     // 标的价值，计算方法是: price * (total_amount + locked_amount) ，仅支持A股
-        int64_t redemption_num;                           // 可申赎数
-        int position_prop;                                // 仓位类型，PositionProp命名空间中定义，股、债、基为多仓，期货分多仓和空仓
-        int64_t init_amount;                              // 期初数量，当日不变
-        //////以下字段期货专用
-        double open_cost;     // 开仓均价，股票和hold_cost相同，期货=开仓成本/（总持仓*合约乘数）
-        int64_t today_amount; // 今天开的仓位
-        int64_t old_amount;   // 昨持仓
-        double occupy_margin; // 占用保证金
-        // 开仓：交易前已占用保证金+开仓价*开仓数量*合约乘数*保证金比例；
-        // 平仓：交易前已占用保证金—开仓价*平今仓数量*合约乘数*保证金比例—昨结算价*平昨仓数量*合约乘数*保证金比例
-        double close_pos_profit;      // 平仓盈亏（盯市），只有平仓的合约才会计入平仓盈亏,老仓采用昨结算价计算
-        double close_profit_by_trade; // 平仓盈亏（逐笔）,只有平仓的合约才会计入平仓盈亏,老仓采用开仓价计算
-        double commission;            // 手续费
-        int contract_multiplier;      // 合约乘数
-        int invest_type;              // 投资类型，InvestType命名空间中定义，报单立即返回，期货有效
-        int option_hold_type;         // 期权持仓类型,OptionHoldType命名空间中定义
-        char fund_account[20];        // 资金账号
-        char stock_account[20];       // 股东账号
-        char security_exchange[4];    // 市场,SecurityExchangeType命名空间中定义
-    };
-
-    struct FundInfo
-    {
-        double available_cash;    // 可用资金, 可用来购买证券的资金
-        double locked_cash;       // 挂单锁住资金，冻结资金
-        double total_value;       // 总资产, 包括现金, 保证金, 仓位的总价值, 可用来计算收益
-        double starting_cash;     // 初始资金, 暂时不可用
-        double positions_value;   // 持仓价值, 股票基金才有持仓价值, 期货为0,暂时不可用
-        double settled_cash;      // 新增字段，期初资金
-        double hold_cash;         // 当前资金余额
-        double market_value;      // 证券市值
-        double transferable_cash; // 可取资金余额
-
-        // 以下字段为期货专用
-        double available_margin;      // 可用保证金,期货可用
-        double occupied_margin;       // 占用保证金，期货可用
-        double pre_balance;           // 期初权益，期货可用
-        double current_balance;       // 客户权益，期货可用
-        double risk_level;            // 占用保证金/客户权益
-        double holding_profit;        // 盯市盈亏，以持仓成本计算的浮动盈亏
-        double close_pos_profit;      // 平仓盈亏（盯市），只有平仓的合约才会计入平仓盈亏,老仓采用昨结算价计算
-        double close_profit_by_trade; // 平仓盈亏（逐笔）,只有平仓的合约才会计入平仓盈亏,老仓采用开仓价计算
-        double commission;            // 手续费
-        double frozen_commission;     // 冻结手续费
-        double freezed_deposit;       // 委托冻结保证金
-        char fund_account[20];        // 资金账号
-        double hk_available_cash;     // 港股通可用资金
-    };
-
-    struct FundFlowDetial
-    {
-        double in_flow_value;  // 流入金额
-        int64_t in_flow_qty;   // 流入股数
-        double out_flow_value; // 流出金额
-        int64_t out_flow_qty;  // 流出股数
-    };
-
-    struct FundFlow
-    {
-        char security_code[ConstField::rSecurityCodeLen];
-        uint64_t datetime;
-        FundFlowDetial super_large_order;
-        FundFlowDetial large_order;
-        FundFlowDetial middle_order;
-        FundFlowDetial small_order;
-        FundFlowDetial main_order;
-    };
-
-    #pragma pack(pop)
-
     enum class DataType
     {
         ORDER = 0,
@@ -422,17 +276,17 @@ namespace marketdata {
     };
 
     #pragma pack(push, 1)
-    struct MDMixedRecord
+    struct MixedRecord
     {
         uint8_t data_type; // MixedRecordType
         union
         {
-            MDOrder order;
-            MDTrade trade;
+            Order order;
+            Trade trade;
         };
     };
-    // 1+max(56,72)=73
-    static_assert(sizeof(MDMixedRecord) == 73, "MDMixedRecord size must be 73 bytes");
+    // 1+max(75,83)=84
+    static_assert(sizeof(MixedRecord) == 84, "MixedRecord size must be 84 bytes");
 
     // 文件头结构
     struct FileHeader
@@ -564,64 +418,6 @@ namespace marketdata {
     static_assert(sizeof(DataFileHeader)   == 64, "FileHeader size mismatch");
     static_assert(sizeof(DataBlockHeader)  == 64, "BlockHeader size mismatch");
     static_assert(sizeof(DataChannelHeader)== 64, "ChannelHeader size mismatch");
-
-    struct alignas(64) IndexFileHeader {
-        uint16_t version;                // idx文件格式版本
-        uint16_t header_size;            // sizeof(IndexFileHeader)，固定64
-        uint32_t magic;                  // idx文件魔数，固定 kIndexMagic
-
-        uint32_t schema_version;         // 对应dat中的schema_version
-        uint32_t trading_day;            // 交易日，例如 20260419
-
-        uint32_t market_id;              // 市场/数据源ID
-        uint32_t complete_flag;          // 1=正常写完，0=未完成/异常中断
-
-        uint32_t block_index_offset;     // BlockIndexEntry区起始offset
-        uint32_t block_index_size;       // BlockIndexEntry区总字节数
-
-        uint32_t symbol_header_offset;   // SymbolHeader区起始offset
-        uint32_t symbol_header_size;     // SymbolHeader区总字节数
-
-        uint32_t symbol_block_offset;    // symbol block index数组区起始offset
-        uint32_t symbol_block_size;      // symbol block index数组区总字节数
-
-        uint32_t header_crc32;           // IndexFileHeader CRC，计算时本字段置0
-        uint32_t reserved0;              // 补齐到8字节边界
-    };
-
-    struct alignas(64) IndexBlockEntry {
-        uint32_t block_total_size;       // block总大小（含padding）
-        uint32_t record_count;           // block内总记录数
-
-        uint32_t channel_count;          // block内channel数量
-        uint32_t symbol_count;           // block内symbol数量
-
-        uint64_t ts_begin_ns;            // block起始时间戳
-        uint64_t ts_end_ns;              // block结束时间戳
-
-        uint64_t block_id;               // block编号，对应dat中的BlockHeader.block_id
-        uint64_t file_offset;            // 该block在dat中的起始offset
-    };
-
-    struct alignas(32) IndexSymbolHeader {
-        int32_t channel_id;              // symbol所属channel
-        uint32_t total_record_count;     // 该symbol在整个文件中的总记录数
-
-        uint32_t block_index_count;      // 该symbol出现的block数量
-        uint32_t reserved0;              // 补齐到8字节边界
-
-        uint64_t block_index_offset;     // 该symbol对应的uint32_t block_index数组在idx中的起始offset
-        char security_code[8];           // symbol code
-    };
-
-    // 指向block在vector的位置
-    using IndexSymbolBlockIndex = uint32_t;
-
-    static_assert(sizeof(IndexFileHeader)  == 64, "IndexFileHeader size mismatch");
-    static_assert(sizeof(IndexBlockEntry)  == 64, "BlockIndexEntry size mismatch");
-    static_assert(sizeof(IndexSymbolHeader)  == 32, "SymbolHeader size mismatch");
-    static_assert(sizeof(IndexSymbolBlockIndex) == 4, "SymbolBlockIndex size mismatch");
-
 }
 
 #endif

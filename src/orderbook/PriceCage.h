@@ -79,7 +79,7 @@ class PriceCage
                 upper = std::max(upper_by_ratio, upper_by_tick);
             }
 
-            return static_cast<int64_t>(roundTo(upper, 2) * 1000000);
+            return static_cast<int64_t>(std::llround(roundTo(upper, 2) * 1000000));
         }
 
         inline int64_t getSellCageLowerPrice(int64_t base_price) const
@@ -94,7 +94,7 @@ class PriceCage
                 lower = std::min(lower_by_ratio, lower_by_tick);
             }
 
-            return static_cast<int64_t>(roundTo(lower, 2) * 1000000);
+            return static_cast<int64_t>(std::llround(roundTo(lower, 2) * 1000000));
         }
 
         // 检查买单价格是否在笼子内: price <= 笼子上限

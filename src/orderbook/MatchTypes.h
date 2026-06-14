@@ -34,7 +34,7 @@ namespace marketdata
     struct MatchRecord
     {
         int64_t match_id = 0;
-        int32_t channel_no = 0;
+        int32_t exchange = 0;
         int64_t bid_order_id = 0;
         int64_t offer_order_id = 0;
         int64_t price = 0;
