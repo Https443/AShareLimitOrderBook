@@ -5,6 +5,8 @@
 #include "util/Config.h"
 #include "util/MysqlConnectionPool.h"
 #include "common/MDTools.h"
+#include <algorithm>
+#include <cstring>
 // #include "algorithm/QuantCalender.h"
 
 class TradingDayCalendar;
@@ -14,14 +16,14 @@ namespace marketdata
     class StrategyContext
     {
     public:
-        std::shared_ptr<Config> m_ctx_config;
-        std::string m_name;
-        std::string m_date;
-        std::string m_configPath;
-        std::shared_ptr<MysqlConnectionCommonPool> m_databasePool;
-        std::shared_ptr<std::unordered_map<long, std::string>> m_subjectIdMap;
-        std::vector<std::string> m_codes;
-        std::shared_ptr<TradingDayCalendar> m_tradingDayCalendar;
+        std::shared_ptr<Config> mCtxConfig;
+        std::string mName;
+        std::string mDate;
+        std::string mConfigPath;
+        std::shared_ptr<MysqlConnectionCommonPool> mDatabasePool;
+        std::shared_ptr<std::unordered_map<long, std::string>> mSubjectIdMap;
+        std::vector<std::string> mCodes;
+        std::shared_ptr<TradingDayCalendar> mTradingDayCalendar;
     };
 
     /// 策略事件处理函数
@@ -50,23 +52,44 @@ namespace marketdata
         /// \brief handleOrderRecord 逐笔委托接收回调
         /// \param order 逐笔委托，MDOrder类型
         ///
-        virtual void FUNCTION_CALL_MODE handleOrderRecord(const Order *order) {}
+        virtual void FUNCTION_CALL_MODE handleOrderRecord(const uint16_t shardId, const Order *order) {}
         ///
         /// \brief handleTradeRecord 逐笔成交接收回调
         /// \param trade 逐笔成交，MDTrade类型
         ///
-        virtual void FUNCTION_CALL_MODE handleTradeRecord(const Trade *trade) {}
+        virtual void FUNCTION_CALL_MODE handleTradeRecord(const uint16_t shardId, const Trade *trade) {}
         ///
-        /// \brief onReadyStopStrategy 策略准备停止回调
-        /// \remark 策略停止时，首先调用此回调，然后再调用onStrategyEnd。此回调中允许交易，不允许和外部系统交互，可以在此回调中撤掉在途订单
-        virtual void FUNCTION_CALL_MODE onReadyStopStrategy() {}
+        /// \brief handleRapidSnapshot 逐笔成交接收回调
+        /// \param trade 逐笔成交，MDTrade类型
+        ///
+        virtual void FUNCTION_CALL_MODE handleRapidSnapshotRecord(const uint16_t shardId, const MDRapidSnapshot *pSnapshot) {}
+        ///
+        /// \brief handleReplayEvent MDReplayServer 的原始逐笔与处理后快照。
+        ///
+        /// 新策略应重载此接口并直接使用 rapidSnapshot，不应在策略内再次重建订单簿。
+        /// 默认实现兼容历史策略：仍分发原始逐笔，并提供由 rapidSnapshot 适配出的十档快照。
+        virtual void FUNCTION_CALL_MODE handleReplayEvent(const MDMergeData *event)
+        {
+            if (event == nullptr)
+            {
+                return;
+            }
+
+            if (event->dataType == static_cast<uint8_t>(MixedRecordType::ORDER))
+            {
+                handleOrderRecord(event->shardId, &event->order);
+            }
+            else if (event->dataType == static_cast<uint8_t>(MixedRecordType::TRADE))
+            {
+                handleTradeRecord(event->shardId, &event->trade);
+            }
+
+            handleRapidSnapshotRecord(event->shardId, &event->rapidSnapshot);
+        }
         ///
         /// \brief onStrategyEnd 策略停止回调
         ///
         virtual void FUNCTION_CALL_MODE onStrategyEnd() {}
     };
 }
-// typedef marketdata::StrategyInterface *(*GET_PLUGIN_FUNC)();
-// extern "C" marketdata::StrategyInterface *getStrategyHandler();
-// typedef void (*DESTROY_PLUGIN_FUNC)(marketdata::StrategyInterface*);
-// extern "C" void destroyStrategyHandler(marketdata::StrategyInterface* strategy);
+

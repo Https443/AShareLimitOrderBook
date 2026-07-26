@@ -31,40 +31,40 @@ inline size_t combine_hash(const T1& val1, const T2& val2)
 
 inline size_t getNearMemoryPageSize(size_t &size)
 {
-    const size_t origin_size = 4 * 1024 * 8;
+    const size_t originSize = 4 * 1024 * 8;
     uint64_t t = 1;
-    size_t set_size = origin_size * t;
-    while (set_size < size)
+    size_t setSize = originSize * t;
+    while (setSize < size)
     {
         t++;
-        set_size = origin_size * t;
+        setSize = originSize * t;
     }
-    return set_size;
+    return setSize;
 }
 
 // 将固定长度的证券代码字段（可能无'\0'终止）转换为可用于map key/对比的字符串
 // - 去掉尾部的'\0'与空格
 // - 保留中间的任意字符（不做trim-left，不做校验）
-inline std::string normalizeSecurityCode(const char* code, size_t max_len = marketdata::ConstField::rSecurityCodeLen)
+inline std::string normalizeSecurityCode(const char* code, size_t maxLen = marketdata::ConstField::kRSecurityCodeLen)
 {
-    if (!code || max_len == 0) return {};
-    size_t n = max_len;
+    if (!code || maxLen == 0) return {};
+    size_t n = maxLen;
     while (n > 0 && (code[n - 1] == '\0' || code[n - 1] == ' '))
         --n;
     return std::string(code, n);
 }
 
-std::string streamOrderData(const marketdata::MDOrder *data);
-std::string streamOrderCsv(const marketdata::MDOrder *data);
-std::string streamTradeData(const marketdata::MDTrade *data);
-std::string streamTradeCsv(const marketdata::MDTrade *data);
+std::string streamOrderData(const marketdata::Order *data);
+std::string streamOrderCsv(const marketdata::Order *data);
+std::string streamTradeData(const marketdata::Trade *data);
+std::string streamTradeCsv(const marketdata::Trade *data);
 std::string streamSnapshotData(const marketdata::MDSnapshot *data);
 std::string streamSnapshotCsv(const marketdata::MDSnapshot *data);
 
-void printOrder(const marketdata::MDOrder *data);
-void printOrderCsv(const marketdata::MDOrder *data);
-void printTrade(const marketdata::MDTrade *data);
-void printTradeCsv(const marketdata::MDTrade *data);
+void printOrder(const marketdata::Order *data);
+void printOrderCsv(const marketdata::Order *data);
+void printTrade(const marketdata::Trade *data);
+void printTradeCsv(const marketdata::Trade *data);
 void printSnapshot(const marketdata::MDSnapshot *data);
 void printSnapshotCsv(const marketdata::MDSnapshot *data);
 

@@ -109,155 +109,179 @@ std::vector<std::string> findCsvFiles(std::string path)
     return dates;
 }
 
-std::string streamOrderData(const marketdata::MDOrder *data)
+std::string streamOrderData(const marketdata::Order *data)
 {
     std::stringstream ss;
-    ss << "code:" << data->security_code << ", time:" << data->datetime
-              << ", price:" << data->price << ", volume:" << data->volume
-              << ", appl_seq_num:" << data->appl_seq_num << ", side:" << data->side
-              << ", order_type:" << data->order_type << ", biz_index:" << data->biz_index
-              << ", channel_no:" << data->channel_no << "\n";
+    ss << "code:" << data->securityCode
+        << ", tradedate:" << data->tradingDay
+        << ", time:" << data->time
+        << ", price:" << data->price
+        << ", volume:" << data->volume
+        << ", appl_seq_num:" << data->applSeqNum
+        << ", side:" << data->side
+        << ", order_type:" << data->orderType
+        << ", order_seq:" << data->orderDbNo
+        << ", biz_index:" << data->bizIndex
+        << ", channel_no:" << data->channelNo << "\n";
     return ss.str();
 }
 
-std::string streamOrderCsv(const marketdata::MDOrder *data)
+std::string streamOrderCsv(const marketdata::Order *data)
 {
     std::stringstream ss;
-    ss << "order," << data->security_code << "," << data->datetime
-              << "," << data->price << "," << data->volume
-              << "," << data->appl_seq_num << "," << data->side
-              << "," << data->order_type << "," << data->biz_index
-              << "," << data->channel_no << "\n";
+    ss << "order," << data->securityCode
+        << "," << data->tradingDay
+        << "," << data->time
+        << "," << data->price
+        << "," << data->volume
+        << "," << data->applSeqNum
+        << "," << data->side
+        << "," << data->orderType
+        << "," << data->orderDbNo
+        << "," << data->bizIndex
+        << "," << data->channelNo << "\n";
     return ss.str();
 }
 
-std::string streamTradeData(const marketdata::MDTrade *data)
+std::string streamTradeData(const marketdata::Trade *data)
 {
     std::stringstream ss;
-    ss << "code:" << data->security_code << ", time:" << data->datetime
-              << ", price:" << data->price << ", volume:" << data->volume
-              << ", appl_seq_num:" << data->appl_seq_num << ", bid_appl_seq_num:" << data->bid_appl_seq_num
-              << ", offer_appl_seq_num:" << data->offer_appl_seq_num << ", side:" << data->side
-              << ", exec_type:" << data->exec_type << ", biz_index:" << data->biz_index
-              << ", channel_no:" << data->channel_no << "\n";
+    ss << "code:" << data->securityCode
+        << ", tradedate:" << data->tradingDay
+        << ", time:" << data->time
+        << ", price:" << data->price
+        << ", volume:" << data->volume
+        << ", appl_seq_num:" << data->applSeqNum
+        << ", bid_appl_seq_num:" << data->bidApplSeqNum
+        << ", offer_appl_seq_num:" << data->offerApplSeqNum
+        << ", side:" << data->side
+        << ", exec_type:" << data->execType
+        << ", biz_index:" << data->bizIndex
+        << ", channel_no:" << data->channelNo << "\n";
     return ss.str();
 }
 
-std::string streamTradeCsv(const marketdata::MDTrade *data)
+std::string streamTradeCsv(const marketdata::Trade *data)
 {
     std::stringstream ss;
-    ss << "trade," << data->security_code << "," << data->datetime
-              << "," << data->price << "," << data->volume
-              << "," << data->appl_seq_num << "," << data->bid_appl_seq_num
-              << "," << data->offer_appl_seq_num << "," << data->side
-              << "," << data->exec_type << "," << data->biz_index
-              << "," << data->channel_no << "\n";
+    ss << "trade," << data->securityCode
+        << "," << data->tradingDay
+        << "," << data->time
+        << "," << data->price
+        << "," << data->volume
+        << "," << data->applSeqNum
+        << "," << data->bidApplSeqNum
+        << "," << data->offerApplSeqNum
+        << "," << data->side
+        << "," << data->execType
+        << "," << data->bizIndex
+        << "," << data->channelNo << "\n";
     return ss.str();
 }
 
 std::string streamSnapshotData(const marketdata::MDSnapshot *data)
 {
     std::stringstream ss;
-    ss << "code:" << data->security_code << ", time:" << data->orig_time
-              << ", last_price:" << data->last_price << ", trades:" << data->num_trades
+    ss << "code:" << data->securityCode << ", time:" << data->origTime
+              << ", last_price:" << data->lastPrice << ", trades:" << data->numTrades
               << ", volume:" << data->volume << ", turnover:" << data->turnover
-              << ", total_trade:" << data->total_trade << ", total_volume:" << data->total_volume
-              << ", total_turnover:" << data->total_turnover << ", total_bid_volume:" << data->total_bid_volume
-              << ", total_offer_volume:" << data->total_offer_volume
-              << ", weighted_avg_bid_price:" << data->weighted_avg_bid_price
-              << ", weighted_avg_offer_price:" << data->weighted_avg_offer_price
-              << ", bid_price1:" << data->bid_price[0] << ", bid_price2:" << data->bid_price[1]
-              << ", bid_price3:" << data->bid_price[2] << ", bid_price4:" << data->bid_price[3]
-              << ", bid_price5:" << data->bid_price[4] << ", bid_price6:" << data->bid_price[5]
-              << ", bid_price7:" << data->bid_price[6] << ", bid_price8:" << data->bid_price[7]
-              << ", bid_price9:" << data->bid_price[8] << ", bid_price10:" << data->bid_price[9]
-              << ", bid_volume1:" << data->bid_volume[0] << ", bid_volume2:" << data->bid_volume[1]
-              << ", bid_volume3:" << data->bid_volume[2] << ", bid_volume4:" << data->bid_volume[3]
-              << ", bid_volume5:" << data->bid_volume[4] << ", bid_volume6:" << data->bid_volume[5]
-              << ", bid_volume7:" << data->bid_volume[6] << ", bid_volume8:" << data->bid_volume[7]
-              << ", bid_volume9:" << data->bid_volume[8] << ", bid_volume10:" << data->bid_volume[9]
-              << ", offer_price1:" << data->offer_price[0] << ", offer_price2:" << data->offer_price[1]
-              << ", offer_price3:" << data->offer_price[2] << ", offer_price4:" << data->offer_price[3]
-              << ", offer_price5:" << data->offer_price[4] << ", offer_price6:" << data->offer_price[5]
-              << ", offer_price7:" << data->offer_price[6] << ", offer_price8:" << data->offer_price[7]
-              << ", offer_price9:" << data->offer_price[8] << ", offer_price10:" << data->offer_price[9]
-              << ", offer_volume1:" << data->offer_volume[0] << ", offer_volume2:" << data->offer_volume[1]
-              << ", offer_volume3:" << data->offer_volume[2] << ", offer_volume4:" << data->offer_volume[3]
-              << ", offer_volume5:" << data->offer_volume[4] << ", offer_volume6:" << data->offer_volume[5]
-              << ", offer_volume7:" << data->offer_volume[6] << ", offer_volume8:" << data->offer_volume[7]
-              << ", offer_volume9:" << data->offer_volume[8] << ", offer_volume10:" << data->offer_volume[9]
-              << ", bid_order1:" << data->bid_order[0] << ", bid_order2:" << data->bid_order[1]
-              << ", bid_order3:" << data->bid_order[2] << ", bid_order4:" << data->bid_order[3]
-              << ", bid_order5:" << data->bid_order[4] << ", bid_order6:" << data->bid_order[5]
-              << ", bid_order7:" << data->bid_order[6] << ", bid_order8:" << data->bid_order[7]
-              << ", bid_order9:" << data->bid_order[8] << ", bid_order10:" << data->bid_order[9]
-              << ", offer_order1:" << data->offer_order[0] << ", offer_order2:" << data->offer_order[1]
-              << ", offer_order3:" << data->offer_order[2] << ", offer_order4:" << data->offer_order[3]
-              << ", offer_order5:" << data->offer_order[4] << ", offer_order6:" << data->offer_order[5]
-              << ", offer_order7:" << data->offer_order[6] << ", offer_order8:" << data->offer_order[7]
-              << ", offer_order9:" << data->offer_order[8] << ", offer_order10:" << data->offer_order[9] << "\n";
+              << ", total_trade:" << data->totalTrade << ", total_volume:" << data->totalVolume
+              << ", total_turnover:" << data->totalTurnover << ", total_bid_volume:" << data->totalBidVolume
+              << ", total_offer_volume:" << data->totalOfferVolume
+              << ", weighted_avg_bid_price:" << data->weightedAvgBidPrice
+              << ", weighted_avg_offer_price:" << data->weightedAvgOfferPrice
+              << ", bid_price1:" << data->bidPrice[0] << ", bid_price2:" << data->bidPrice[1]
+              << ", bid_price3:" << data->bidPrice[2] << ", bid_price4:" << data->bidPrice[3]
+              << ", bid_price5:" << data->bidPrice[4] << ", bid_price6:" << data->bidPrice[5]
+              << ", bid_price7:" << data->bidPrice[6] << ", bid_price8:" << data->bidPrice[7]
+              << ", bid_price9:" << data->bidPrice[8] << ", bid_price10:" << data->bidPrice[9]
+              << ", bid_volume1:" << data->bidVolume[0] << ", bid_volume2:" << data->bidVolume[1]
+              << ", bid_volume3:" << data->bidVolume[2] << ", bid_volume4:" << data->bidVolume[3]
+              << ", bid_volume5:" << data->bidVolume[4] << ", bid_volume6:" << data->bidVolume[5]
+              << ", bid_volume7:" << data->bidVolume[6] << ", bid_volume8:" << data->bidVolume[7]
+              << ", bid_volume9:" << data->bidVolume[8] << ", bid_volume10:" << data->bidVolume[9]
+              << ", offer_price1:" << data->offerPrice[0] << ", offer_price2:" << data->offerPrice[1]
+              << ", offer_price3:" << data->offerPrice[2] << ", offer_price4:" << data->offerPrice[3]
+              << ", offer_price5:" << data->offerPrice[4] << ", offer_price6:" << data->offerPrice[5]
+              << ", offer_price7:" << data->offerPrice[6] << ", offer_price8:" << data->offerPrice[7]
+              << ", offer_price9:" << data->offerPrice[8] << ", offer_price10:" << data->offerPrice[9]
+              << ", offer_volume1:" << data->offerVolume[0] << ", offer_volume2:" << data->offerVolume[1]
+              << ", offer_volume3:" << data->offerVolume[2] << ", offer_volume4:" << data->offerVolume[3]
+              << ", offer_volume5:" << data->offerVolume[4] << ", offer_volume6:" << data->offerVolume[5]
+              << ", offer_volume7:" << data->offerVolume[6] << ", offer_volume8:" << data->offerVolume[7]
+              << ", offer_volume9:" << data->offerVolume[8] << ", offer_volume10:" << data->offerVolume[9]
+              << ", bid_order1:" << data->bidOrder[0] << ", bid_order2:" << data->bidOrder[1]
+              << ", bid_order3:" << data->bidOrder[2] << ", bid_order4:" << data->bidOrder[3]
+              << ", bid_order5:" << data->bidOrder[4] << ", bid_order6:" << data->bidOrder[5]
+              << ", bid_order7:" << data->bidOrder[6] << ", bid_order8:" << data->bidOrder[7]
+              << ", bid_order9:" << data->bidOrder[8] << ", bid_order10:" << data->bidOrder[9]
+              << ", offer_order1:" << data->offerOrder[0] << ", offer_order2:" << data->offerOrder[1]
+              << ", offer_order3:" << data->offerOrder[2] << ", offer_order4:" << data->offerOrder[3]
+              << ", offer_order5:" << data->offerOrder[4] << ", offer_order6:" << data->offerOrder[5]
+              << ", offer_order7:" << data->offerOrder[6] << ", offer_order8:" << data->offerOrder[7]
+              << ", offer_order9:" << data->offerOrder[8] << ", offer_order10:" << data->offerOrder[9] << "\n";
     return ss.str();
 }
 
 std::string streamSnapshotCsv(const marketdata::MDSnapshot *data)
 {
     std::stringstream ss;
-    ss << "snapshot," << data->security_code << "," << data->orig_time
-              << "," << data->last_price << "," << data->num_trades
+    ss << "snapshot," << data->securityCode << "," << data->origTime
+              << "," << data->lastPrice << "," << data->numTrades
               << "," << data->volume << "," << data->turnover
-              << "," << data->total_trade << "," << data->total_volume
-              << "," << data->total_turnover << "," << data->total_bid_volume
-              << "," << data->total_offer_volume << "," << data->weighted_avg_bid_price
-              << "," << data->weighted_avg_offer_price
-              << "," << data->bid_price[0] << "," << data->bid_price[1]
-              << "," << data->bid_price[2] << "," << data->bid_price[3]
-              << "," << data->bid_price[4] << "," << data->bid_price[5]
-              << "," << data->bid_price[6] << "," << data->bid_price[7]
-              << "," << data->bid_price[8] << "," << data->bid_price[9]
-              << "," << data->bid_volume[0] << "," << data->bid_volume[1]
-              << "," << data->bid_volume[2] << "," << data->bid_volume[3]
-              << "," << data->bid_volume[4] << "," << data->bid_volume[5]
-              << "," << data->bid_volume[6] << "," << data->bid_volume[7]
-              << "," << data->bid_volume[8] << "," << data->bid_volume[9]
-              << "," << data->offer_price[0] << "," << data->offer_price[1]
-              << "," << data->offer_price[2] << "," << data->offer_price[3]
-              << "," << data->offer_price[4] << "," << data->offer_price[5]
-              << "," << data->offer_price[6] << "," << data->offer_price[7]
-              << "," << data->offer_price[8] << "," << data->offer_price[9]
-              << "," << data->offer_volume[0] << "," << data->offer_volume[1]
-              << "," << data->offer_volume[2] << "," << data->offer_volume[3]
-              << "," << data->offer_volume[4] << "," << data->offer_volume[5]
-              << "," << data->offer_volume[6] << "," << data->offer_volume[7]
-              << "," << data->offer_volume[8] << "," << data->offer_volume[9]
-              << "," << data->bid_order[0] << "," << data->bid_order[1]
-              << "," << data->bid_order[2] << "," << data->bid_order[3]
-              << "," << data->bid_order[4] << "," << data->bid_order[5]
-              << "," << data->bid_order[6] << "," << data->bid_order[7]
-              << "," << data->bid_order[8] << "," << data->bid_order[9]
-              << "," << data->offer_order[0] << "," << data->offer_order[1]
-              << "," << data->offer_order[2] << "," << data->offer_order[3]
-              << "," << data->offer_order[4] << "," << data->offer_order[5]
-              << "," << data->offer_order[6] << "," << data->offer_order[7]
-              << "," << data->offer_order[8] << "," << data->offer_order[9] << "\n";
+              << "," << data->totalTrade << "," << data->totalVolume
+              << "," << data->totalTurnover << "," << data->totalBidVolume
+              << "," << data->totalOfferVolume << "," << data->weightedAvgBidPrice
+              << "," << data->weightedAvgOfferPrice
+              << "," << data->bidPrice[0] << "," << data->bidPrice[1]
+              << "," << data->bidPrice[2] << "," << data->bidPrice[3]
+              << "," << data->bidPrice[4] << "," << data->bidPrice[5]
+              << "," << data->bidPrice[6] << "," << data->bidPrice[7]
+              << "," << data->bidPrice[8] << "," << data->bidPrice[9]
+              << "," << data->bidVolume[0] << "," << data->bidVolume[1]
+              << "," << data->bidVolume[2] << "," << data->bidVolume[3]
+              << "," << data->bidVolume[4] << "," << data->bidVolume[5]
+              << "," << data->bidVolume[6] << "," << data->bidVolume[7]
+              << "," << data->bidVolume[8] << "," << data->bidVolume[9]
+              << "," << data->offerPrice[0] << "," << data->offerPrice[1]
+              << "," << data->offerPrice[2] << "," << data->offerPrice[3]
+              << "," << data->offerPrice[4] << "," << data->offerPrice[5]
+              << "," << data->offerPrice[6] << "," << data->offerPrice[7]
+              << "," << data->offerPrice[8] << "," << data->offerPrice[9]
+              << "," << data->offerVolume[0] << "," << data->offerVolume[1]
+              << "," << data->offerVolume[2] << "," << data->offerVolume[3]
+              << "," << data->offerVolume[4] << "," << data->offerVolume[5]
+              << "," << data->offerVolume[6] << "," << data->offerVolume[7]
+              << "," << data->offerVolume[8] << "," << data->offerVolume[9]
+              << "," << data->bidOrder[0] << "," << data->bidOrder[1]
+              << "," << data->bidOrder[2] << "," << data->bidOrder[3]
+              << "," << data->bidOrder[4] << "," << data->bidOrder[5]
+              << "," << data->bidOrder[6] << "," << data->bidOrder[7]
+              << "," << data->bidOrder[8] << "," << data->bidOrder[9]
+              << "," << data->offerOrder[0] << "," << data->offerOrder[1]
+              << "," << data->offerOrder[2] << "," << data->offerOrder[3]
+              << "," << data->offerOrder[4] << "," << data->offerOrder[5]
+              << "," << data->offerOrder[6] << "," << data->offerOrder[7]
+              << "," << data->offerOrder[8] << "," << data->offerOrder[9] << "\n";
     return ss.str();
 }
 
-void printOrder(const marketdata::MDOrder *data)
+void printOrder(const marketdata::Order *data)
 {
     std::cout << streamOrderData(data);
 }
 
-void printOrderCsv(const marketdata::MDOrder *data)
+void printOrderCsv(const marketdata::Order *data)
 {
     std::cout << streamOrderCsv(data);
 }
 
-void printTrade(const marketdata::MDTrade *data)
+void printTrade(const marketdata::Trade *data)
 {
     std::cout << streamTradeData(data);
 }
 
-void printTradeCsv(const marketdata::MDTrade *data)
+void printTradeCsv(const marketdata::Trade *data)
 {
     std::cout << streamTradeCsv(data);
 }

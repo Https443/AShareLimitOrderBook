@@ -187,6 +187,7 @@ void StockQuotationDailyCsvLoader::loadByDate(const std::string &tradingDay)
 
         StockQuotationDailyRecord record = parseRecord(fields, tradingDay, lineNumber);
         if (record.volume == 0) continue;
+        if (record.limitDown <= 10'000 || record.limitUp >= 5'000'000'000) continue;
         const auto [it, inserted] = m_symbolToIndex.emplace(record.symbol, m_records.size());
         STDTHROWIF(
             !inserted,

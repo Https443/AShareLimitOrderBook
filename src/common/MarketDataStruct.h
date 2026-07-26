@@ -17,7 +17,7 @@ namespace marketdata {
         static const uint32_t kChannelExternCfgLen = 16; // 通道扩展配置的最大个数
         static const uint32_t kPasswordLen = 64;         // 用户名的最大长度
         static const uint32_t kSecurityCodeLen = 16;     // 证券代码最大长度
-        static const uint32_t rSecurityCodeLen = 8;
+        static const uint32_t kRSecurityCodeLen = 8;
         static const uint32_t kFutureSecurityCodeLen = 32; // 期货证券代码最大长度
         static const uint32_t kSecurityNameLen = 32;       // 证券名称最大长度
         static const uint32_t kPositionLevelLen = 10;      // 行情档位
@@ -42,93 +42,93 @@ namespace marketdata {
         static const uint32_t kSecurityAbbreviationLen = 64; // 证券简称最大长度
     };
 
-    typedef char SecurityCodeType[ConstField::rSecurityCodeLen];
+    typedef char SecurityCodeType[ConstField::kRSecurityCodeLen];
     /**  @} */
 
     #pragma pack(push, 1)
     struct Order
     {
         uint8_t side;       // 买卖方向 (深圳市场:1-买 2-卖 G-借入 F-出借, 上海市场:B–买单 S–卖单)
-        uint8_t order_type; // 订单类别 (深圳市场:1-市价 2-限价 U-本方最优, 上海市场:A–新增委托订单 D–删除委托订单，即撤单)
-        uint8_t market_type; // 交易所类型 0深圳 1上海
-        int32_t trading_day; // 交易日（YYYYMMDD）
-        int32_t channel_no; // 频道号
-        char security_code[ConstField::rSecurityCodeLen]; // 证券代码
+        uint8_t orderType; // 订单类别 (深圳市场:1-市价 2-限价 U-本方最优, 上海市场:A–新增委托订单 D–删除委托订单，即撤单)
+        uint8_t marketType; // 交易所类型 0深圳 1上海
+        int32_t tradingDay; // 交易日（YYYYMMDD）
+        int32_t channelNo; // 频道号
+        char securityCode[ConstField::kRSecurityCodeLen]; // 证券代码
         int64_t time; // 时间（HHMMSSsssnnnnnn)
         int64_t recvtime; // 实际收到时间
         int64_t price;    // 委托价格，实际值需除以1000000
         int64_t volume;   // 深圳市场:委托数量, 上海市场:剩余委托数量
-        int64_t appl_seq_num; // 频道索引
-        int64_t order_db_no; // 原始订单号(上海市场有效)
-        int64_t biz_index;    // 业务序号
+        int64_t applSeqNum; // 频道索引
+        int64_t orderDbNo; // 原始订单号(上海市场有效)
+        int64_t bizIndex;    // 业务序号
     };
     // 75
 
     struct Trade
     {
         uint8_t side;       // 买卖方向 (仅上海有效 B-外盘，主动买 S-内盘，主动卖 N-未知)(无效数据使用'-'填充)
-        uint8_t exec_type;  // 成交类型 (仅深圳有效 4-撤销 F-成交)(无效数据使用'-'填充)
-        uint8_t market_type; // 交易所类型 0深圳 1上海
-        int32_t trading_day; // 交易日
-        int32_t channel_no; // 频道号（YYYYMMDD）
-        char security_code[ConstField::rSecurityCodeLen]; // 证券代码
+        uint8_t execType;  // 成交类型 (仅深圳有效 4-撤销 F-成交)(无效数据使用'-'填充)
+        uint8_t marketType; // 交易所类型 0深圳 1上海
+        int32_t tradingDay; // 交易日
+        int32_t channelNo; // 频道号（YYYYMMDD）
+        char securityCode[ConstField::kRSecurityCodeLen]; // 证券代码
         int64_t time; // 时间（HHMMSSsssnnnnnn)
         int64_t recvtime; // 实际收到时间
         int64_t price;    // 成交价格，实际值需除以1000000, 深交所撤单时价格为0
         int64_t volume;   // 成交数量
-        int64_t appl_seq_num;       // 成交编号
-        int64_t bid_appl_seq_num;   // 买方委托索引
-        int64_t offer_appl_seq_num; // 卖方委托索引
-        int64_t biz_index;          // 业务序号
+        int64_t applSeqNum;       // 成交编号
+        int64_t bidApplSeqNum;   // 买方委托索引
+        int64_t offerApplSeqNum; // 卖方委托索引
+        int64_t bizIndex;          // 业务序号
     };
     // 83
 
     struct MDSnapshot
     {
-        char security_code[ConstField::rSecurityCodeLen];    // 证券代码
-        int64_t orig_time;                                   // 时间（YYYYMMDDHHMMSSsss)
-        int64_t last_price;                                  // 最新价，实际值需除以1000000
-        int64_t num_trades;                                  // 成交笔数
+        char securityCode[ConstField::kRSecurityCodeLen];    // 证券代码
+        int64_t origTime;                                   // 时间（YYYYMMDDHHMMSSsss)
+        int64_t lastPrice;                                  // 最新价，实际值需除以1000000
+        int64_t numTrades;                                  // 成交笔数
         int64_t volume;                                      // 成交量
         int64_t turnover;                                    // 成交额，实际值需除以1000000
-        int64_t total_trade;                                 // 成交总笔数
-        int64_t total_volume;                                // 成交总量
-        int64_t total_turnover;                              // 成交总金额，实际值需除以1000000
-        int64_t total_bid_volume;                            // 委托买入总量
-        int64_t total_offer_volume;                          // 委托卖出总量
-        int64_t weighted_avg_bid_price;                      // 加权平均为委买价格，实际值需除以1000000
-        int64_t weighted_avg_offer_price;                    // 加权平均为委卖价格，实际值需除以1000000
-        int64_t bid_price[ConstField::kPositionLevelLen];    // 申买价，实际值需除以1000000
-        int64_t bid_volume[ConstField::kPositionLevelLen];   // 申买量
-        int64_t offer_price[ConstField::kPositionLevelLen];  // 申卖价，实际值需除以1000000
-        int64_t offer_volume[ConstField::kPositionLevelLen]; // 申卖量
-        int64_t bid_order[ConstField::kPositionLevelLen];    // 委买挂单数量
-        int64_t offer_order[ConstField::kPositionLevelLen];  // 委卖挂单数量
+        int64_t totalTrade;                                 // 成交总笔数
+        int64_t totalVolume;                                // 成交总量
+        int64_t totalTurnover;                              // 成交总金额，实际值需除以1000000
+        int64_t totalBidVolume;                            // 委托买入总量
+        int64_t totalOfferVolume;                          // 委托卖出总量
+        int64_t weightedAvgBidPrice;                      // 加权平均为委买价格，实际值需除以1000000
+        int64_t weightedAvgOfferPrice;                    // 加权平均为委卖价格，实际值需除以1000000
+        int64_t bidPrice[ConstField::kPositionLevelLen];    // 申买价，实际值需除以1000000
+        int64_t bidVolume[ConstField::kPositionLevelLen];   // 申买量
+        int64_t offerPrice[ConstField::kPositionLevelLen];  // 申卖价，实际值需除以1000000
+        int64_t offerVolume[ConstField::kPositionLevelLen]; // 申卖量
+        int64_t bidOrder[ConstField::kPositionLevelLen];    // 委买挂单数量
+        int64_t offerOrder[ConstField::kPositionLevelLen];  // 委卖挂单数量
     };
     // 8+8+8+8+8+8+8+8+8+8+8+8+8+(10*8)+(10*8)+(10*8)+(10*8)+(10*8)+(10*8)=584
 
     // 合成快照
     struct MDRapidSnapshot
     {
-        char security_code[ConstField::rSecurityCodeLen];    // 证券代码
-        int64_t orig_time;                                   // 时间（YYYYMMDDHHMMSSsss)
+        char securityCode[ConstField::kRSecurityCodeLen];    // 证券代码
+        int64_t origTime;                                   // 时间（YYYYMMDDHHMMSSsss)
         int64_t id;                                          // 快照对应的逐笔id
-        int64_t last_price;                                  // 最新价，实际值需除以1000000
-        int64_t pre_close_price;                             // 昨收价，实际值需除以1000000
-        int64_t open_price;                                  // 开盘价，实际值需除以1000000, 暂未更新
-        int64_t high_price;                                  // 最高价，实际值需除以1000000
-        int64_t low_price;                                   // 最低价，实际值需除以1000000
-        int64_t close_price;                                 // 收盘价，实际值需除以1000000, 暂未更新
+        int64_t lastPrice;                                  // 最新价，实际值需除以1000000
+        int64_t preClosePrice;                             // 昨收价，实际值需除以1000000
+        int64_t openPrice;                                  // 开盘价，实际值需除以1000000, 暂未更新
+        int64_t highPrice;                                  // 最高价，实际值需除以1000000
+        int64_t lowPrice;                                   // 最低价，实际值需除以1000000
+        int64_t closePrice;                                 // 收盘价，实际值需除以1000000, 暂未更新
         int64_t volume;                                      // 成交量
         int64_t turnover;                                    // 成交额，实际值需除以1000000
-        int64_t high_limited;                                // 涨停价，实际值需除以1000000
-        int64_t low_limited;                                 // 跌停价，实际值需除以1000000
-        int64_t bid_price[ConstField::kPositionParidLevelLen];    // 申买价，实际值需除以1000000
-        int64_t bid_volume[ConstField::kPositionParidLevelLen];   // 申买量
-        int64_t offer_price[ConstField::kPositionParidLevelLen];  // 申卖价，实际值需除以1000000
-        int64_t offer_volume[ConstField::kPositionParidLevelLen]; // 申卖量
-        int64_t bid_order[ConstField::kPositionParidLevelLen];    // 委买挂单数量
-        int64_t offer_order[ConstField::kPositionParidLevelLen];  // 委卖挂单数量
+        int64_t highLimited;                                // 涨停价，实际值需除以1000000
+        int64_t lowLimited;                                 // 跌停价，实际值需除以1000000
+        int64_t bidPrice[ConstField::kPositionParidLevelLen];    // 申买价，实际值需除以1000000
+        int64_t bidVolume[ConstField::kPositionParidLevelLen];   // 申买量
+        int64_t offerPrice[ConstField::kPositionParidLevelLen];  // 申卖价，实际值需除以1000000
+        int64_t offerVolume[ConstField::kPositionParidLevelLen]; // 申卖量
+        int64_t bidOrder[ConstField::kPositionParidLevelLen];    // 委买挂单数量
+        int64_t offerOrder[ConstField::kPositionParidLevelLen];  // 委卖挂单数量
     };
     // 8+(11*9)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)+(20*8)=132*8=
 
@@ -137,11 +137,11 @@ namespace marketdata {
      * @{ */
     struct MDSnapshotV2 : MDSnapshot
     {
-        int32_t market_type; // 市场类型
-        int32_t channel_no;  // 频道代码
-        char md_stream_id[ConstField::kMDStreamIDMaxLen];
-        char instrument_status[ConstField::kTradingPhaseCodeLen];  // 当前品种交易状态
-        char trading_phase_code[ConstField::kTradingPhaseCodeLen]; // 产品实时阶段及标志
+        int32_t marketType; // 市场类型
+        int32_t channelNo;  // 频道代码
+        char mdStreamId[ConstField::kMDStreamIDMaxLen];
+        char instrumentStatus[ConstField::kTradingPhaseCodeLen];  // 当前品种交易状态
+        char tradingPhaseCode[ConstField::kTradingPhaseCodeLen]; // 产品实时阶段及标志
         //************************************上海现货快照交易状态***************************************************************
         // 该字段为8位字符串，左起每位表示特定的含义，无定义则填空格。
         // 第0位：‘S’表示启动（开市前）时段，‘C’表示集合竞价时段，‘T’表示连续交易时段，
@@ -155,44 +155,44 @@ namespace marketdata {
         //************************************深圳现货快照交易状态***************************************************************
         // 第 0位：‘S’= 启动（开市前）‘O’= 开盘集合竞价‘T’= 连续竞价‘B’= 休市‘C’= 收盘集合竞价‘E’= 已闭市‘H’= 临时停牌‘A’= 盘后交易‘V’=波动性中断
         // 第 1位：‘0’= 正常状态 ‘1’= 全天停牌
-        int64_t pre_close_price;              // 昨收价，实际值需除以1000000
-        int64_t open_price;                   // 开盘价，实际值需除以1000000
-        int64_t high_price;                   // 最高价，实际值需除以1000000
-        int64_t low_price;                    // 最低价，实际值需除以1000000
-        int64_t close_price;                  // 收盘价，实际值需除以1000000
-        int64_t IOPV;                         // IOPV净值估产，实际值需除以1000000
-        int64_t yield_to_maturity;            // 到期收益率，实际值需除以1000
-        int64_t high_limited;                 // 涨停价，实际值需除以1000000
-        int64_t low_limited;                  // 跌停价，实际值需除以1000000
-        int64_t price_earning_ratio1;         // 市盈率1，实际值需除以1000000
-        int64_t price_earning_ratio2;         // 市盈率2，实际值需除以1000000
+        int64_t preClosePrice;              // 昨收价，实际值需除以1000000
+        int64_t openPrice;                   // 开盘价，实际值需除以1000000
+        int64_t highPrice;                   // 最高价，实际值需除以1000000
+        int64_t lowPrice;                    // 最低价，实际值需除以1000000
+        int64_t closePrice;                  // 收盘价，实际值需除以1000000
+        int64_t iopv;                         // IOPV净值估产，实际值需除以1000000
+        int64_t yieldToMaturity;            // 到期收益率，实际值需除以1000
+        int64_t highLimited;                 // 涨停价，实际值需除以1000000
+        int64_t lowLimited;                  // 跌停价，实际值需除以1000000
+        int64_t priceEarningRatio1;         // 市盈率1，实际值需除以1000000
+        int64_t priceEarningRatio2;         // 市盈率2，实际值需除以1000000
         int64_t change1;                      // 升跌1（对比昨收价），实际值需除以1000000
         int64_t change2;                      // 升跌2（对比上一笔），实际值需除以1000000
-        int64_t pre_close_iopv;               // 基金T-1日收盘时刻IOPV, 实际值需除以1000000
-        int64_t alt_weighted_avg_bid_price;   // 债券加权平均委买价格, 实际值需除以1000000
-        int64_t alt_weighted_avg_offer_price; // 债券加权平均委卖价格, 实际值需除以1000000
-        int64_t etf_buy_number;               // ETF 申购笔数
-        int64_t etf_buy_amount;               // ETF 申购数量,实际值需除以100
-        int64_t etf_buy_money;                // ETF 申购金额,实际值需除以100000
-        int64_t etf_sell_number;              // ETF 赎回笔数
-        int64_t etf_sell_amount;              // ETF 赎回数量,实际值需除以100
-        int64_t etf_sell_money;               // ETF 赎回金额,实际值需除以100000
-        int64_t total_warrant_exec_volume;    // 权证执行的总数量,实际值需除以100
-        int64_t war_lower_price;              // 债券质押式回购品种加权平均价, 实际值需除以1000000
-        int64_t war_upper_price;              // 权证涨停价格, 实际值需除以1000000
-        int64_t withdraw_buy_number;          // 买入撤单笔数
-        int64_t withdraw_buy_amount;          // 买入撤单数量,实际值需除以100
-        int64_t withdraw_buy_money;           // 买入撤单金额,实际值需除以100000
-        int64_t withdraw_sell_number;         // 卖出撤单笔数
-        int64_t withdraw_sell_amount;         // 卖出撤单数量,实际值需除以100
-        int64_t withdraw_sell_money;          // 卖出撤单金额,实际值需除以100000
-        int64_t total_bid_number;             // 买入总笔数
-        int64_t total_offer_number;           // 卖出总笔数
-        int32_t bid_trade_max_duration;       // 买入委托成交最大等待时间
-        int32_t offer_trade_max_duration;     // 卖出委托成交最大等待时间
-        int32_t num_bid_orders;               // 买方委托价位数
-        int32_t num_offer_orders;             // 卖方委托价位数
-        int64_t last_trade_time;              // 最近成交时间（为YYYYMMDDHHMMSSsss 仅上海00文件，LDDS生效）
+        int64_t preCloseIopv;               // 基金T-1日收盘时刻IOPV, 实际值需除以1000000
+        int64_t altWeightedAvgBidPrice;   // 债券加权平均委买价格, 实际值需除以1000000
+        int64_t altWeightedAvgOfferPrice; // 债券加权平均委卖价格, 实际值需除以1000000
+        int64_t etfBuyNumber;               // ETF 申购笔数
+        int64_t etfBuyAmount;               // ETF 申购数量,实际值需除以100
+        int64_t etfBuyMoney;                // ETF 申购金额,实际值需除以100000
+        int64_t etfSellNumber;              // ETF 赎回笔数
+        int64_t etfSellAmount;              // ETF 赎回数量,实际值需除以100
+        int64_t etfSellMoney;               // ETF 赎回金额,实际值需除以100000
+        int64_t totalWarrantExecVolume;    // 权证执行的总数量,实际值需除以100
+        int64_t warLowerPrice;              // 债券质押式回购品种加权平均价, 实际值需除以1000000
+        int64_t warUpperPrice;              // 权证涨停价格, 实际值需除以1000000
+        int64_t withdrawBuyNumber;          // 买入撤单笔数
+        int64_t withdrawBuyAmount;          // 买入撤单数量,实际值需除以100
+        int64_t withdrawBuyMoney;           // 买入撤单金额,实际值需除以100000
+        int64_t withdrawSellNumber;         // 卖出撤单笔数
+        int64_t withdrawSellAmount;         // 卖出撤单数量,实际值需除以100
+        int64_t withdrawSellMoney;          // 卖出撤单金额,实际值需除以100000
+        int64_t totalBidNumber;             // 买入总笔数
+        int64_t totalOfferNumber;           // 卖出总笔数
+        int32_t bidTradeMaxDuration;       // 买入委托成交最大等待时间
+        int32_t offerTradeMaxDuration;     // 卖出委托成交最大等待时间
+        int32_t numBidOrders;               // 买方委托价位数
+        int32_t numOfferOrders;             // 卖方委托价位数
+        int64_t lastTradeTime;              // 最近成交时间（为YYYYMMDDHHMMSSsss 仅上海00文件，LDDS生效）
     };
 
     struct MDKLine
@@ -202,10 +202,10 @@ namespace marketdata {
         int64_t close;                                    // k线周期内的收盘价，实际值需除以1000000
         int64_t high;                                     // k线周期内的最高价，实际值需除以1000000
         int64_t low;                                      // k线周期内的最低价，实际值需除以1000000
-        int64_t total_volume;                             // k线周期内的成交总量
-        int64_t total_money;                              // k线周期内的总成交金额，实际值需除以1000000
-        int64_t num_trades;                               // k线周期内的总成交笔数
-        char security_code[ConstField::rSecurityCodeLen]; // 证券代码
+        int64_t totalVolume;                             // k线周期内的成交总量
+        int64_t totalMoney;                              // k线周期内的总成交金额，实际值需除以1000000
+        int64_t numTrades;                               // k线周期内的总成交笔数
+        char securityCode[ConstField::kRSecurityCodeLen]; // 证券代码
     };
     // 8 * 9 = 72
 
@@ -278,7 +278,7 @@ namespace marketdata {
     #pragma pack(push, 1)
     struct MixedRecord
     {
-        uint8_t data_type; // MixedRecordType
+        uint8_t dataType; // MixedRecordType
         union
         {
             Order order;
@@ -292,48 +292,48 @@ namespace marketdata {
     struct FileHeader
     {
         uint32_t version = 1;   // 文件格式版本
-        uint64_t data_offset;   // 数据起始位置
-        uint64_t meta_offset;   // 元数据索引位置
-        uint32_t total_stocks;  // 总股票数量
-        uint64_t total_records; // 总记录条数
+        uint64_t dataOffset;   // 数据起始位置
+        uint64_t metaOffset;   // 元数据索引位置
+        uint32_t totalStocks;  // 总股票数量
+        uint64_t totalRecords; // 总记录条数
     };
     // 4+8+8+4+8 = 32
 
     // 数据块头
     struct RecordBlockHeader
     {
-        uint64_t original_size;                        // 原始数据大小
-        uint64_t compressed_size;                      // 压缩后大小
-        uint64_t record_count;                         // 本块记录数
-        uint64_t mmap_expand_size;                     // mmap分配大小，包含BlockHeader和压缩后数据总大小，与内存页4k对齐
+        uint64_t originalSize;                        // 原始数据大小
+        uint64_t compressedSize;                      // 压缩后大小
+        uint64_t recordCount;                         // 本块记录数
+        uint64_t mmapExpandSize;                     // mmap分配大小，包含BlockHeader和压缩后数据总大小，与内存页4k对齐
     };
     // 8+8+8+8 = 32
 
     struct BlockHeader
     {
-        uint64_t original_size;                        // 原始数据大小
-        uint64_t compressed_size;                      // 压缩后大小
-        uint64_t record_count;                         // 本块记录数
-        uint64_t mmap_expand_size;                     // mmap分配大小，包含BlockHeader和压缩后数据总大小，与内存页4k对齐
-        char stock_code[ConstField::rSecurityCodeLen]; // 股票代码
+        uint64_t originalSize;                        // 原始数据大小
+        uint64_t compressedSize;                      // 压缩后大小
+        uint64_t recordCount;                         // 本块记录数
+        uint64_t mmapExpandSize;                     // mmap分配大小，包含BlockHeader和压缩后数据总大小，与内存页4k对齐
+        char stockCode[ConstField::kRSecurityCodeLen]; // 股票代码
     };
     // 8+8+8+8+8 = 40
 
     // 元数据索引项
     struct RecordStockMeta
     {
-        SecurityCodeType stock_code;
-        uint32_t order_count;    // order记录数
-        uint32_t trade_count;    // trade记录数
+        SecurityCodeType stockCode;
+        uint32_t orderCount;    // order记录数
+        uint32_t tradeCount;    // trade记录数
     };
     // 8+4+4 = 16
     struct StockMeta
     {
-        char stock_code[ConstField::rSecurityCodeLen];
+        char stockCode[ConstField::kRSecurityCodeLen];
         uint64_t offset;          // 数据块起始位置
-        uint64_t compressed_size; // 压缩后总大小
-        uint64_t original_size;   // 原始数据总大小
-        uint32_t record_count;    // 总记录数
+        uint64_t compressedSize; // 压缩后总大小
+        uint64_t originalSize;   // 原始数据总大小
+        uint32_t recordCount;    // 总记录数
     };
     // 8+8+8+8+4 = 36
     #pragma pack(pop)
@@ -357,60 +357,60 @@ namespace marketdata {
 
     struct alignas(64) DataFileHeader {
         uint16_t version;             // 文件格式版本
-        uint16_t header_size;         // sizeof(FileHeader)，固定64
+        uint16_t headerSize;         // sizeof(FileHeader)，固定64
         uint32_t magic;               // 文件魔数，固定 kFileMagic
         
         uint32_t flags;               // FileFlags
-        uint32_t align_size;          // block对齐粒度，例如4096；0表示不对齐
+        uint32_t alignSize;          // block对齐粒度，例如4096；0表示不对齐
 
-        uint32_t default_codec;       // 默认压缩算法，见 CodecType
-        uint32_t schema_version;      // payload记录格式版本
+        uint32_t defaultCodec;       // 默认压缩算法，见 CodecType
+        uint32_t schemaVersion;      // payload记录格式版本
 
-        uint32_t trading_day;         // 交易日，例如 20260419
-        uint32_t market_id;           // 市场/数据源ID
+        uint32_t tradingDay;         // 交易日，例如 20260419
+        uint32_t marketId;           // 市场/数据源ID
 
-        uint32_t complete_flag;       // 1=正常封口，0=未完成/异常中断
-        uint32_t header_crc32;        // FileHeader CRC，计算时本字段置0
+        uint32_t completeFlag;       // 1=正常封口，0=未完成/异常中断
+        uint32_t headerCrc32;        // FileHeader CRC，计算时本字段置0
 
-        uint64_t first_block_offset;  // 第一个block的文件偏移
-        uint64_t logical_end_offset;  // 有效数据结束位置（最后一个有效字节下一位）
-        uint64_t block_count;         // 成功写入的block数量
+        uint64_t firstBlockOffset;  // 第一个block的文件偏移
+        uint64_t logicalEndOffset;  // 有效数据结束位置（最后一个有效字节下一位）
+        uint64_t blockCount;         // 成功写入的block数量
     };
 
     struct alignas(64) DataBlockHeader {
         uint16_t version;                // block格式版本
-        uint16_t header_size;            // sizeof(BlockHeader)，固定64
+        uint16_t headerSize;            // sizeof(BlockHeader)，固定64
         uint32_t magic;                  // block魔数，固定 kBlockMagic
         
-        uint32_t block_total_size;       // block总大小（含padding）
-        uint32_t record_count;           // block内总记录数
+        uint32_t blockTotalSize;       // block总大小（含padding）
+        uint32_t recordCount;           // block内总记录数
 
-        uint32_t channel_count;          // ChannelHeader个数
-        uint32_t symbol_count;           // block内涉及symbol数量（统计值）
+        uint32_t channelCount;          // ChannelHeader个数
+        uint32_t symbolCount;           // block内涉及symbol数量（统计值）
 
-        uint32_t channel_headers_offset; // 相对block起始offset
-        uint32_t channel_headers_size;   // ChannelHeader区总字节数
+        uint32_t channelHeadersOffset; // 相对block起始offset
+        uint32_t channelHeadersSize;   // ChannelHeader区总字节数
 
-        uint32_t payload_offset;         // 相对block起始offset
-        uint32_t raw_size;               // 解压后payload大小
-        uint32_t compressed_size;        // 压缩后payload大小
+        uint32_t payloadOffset;         // 相对block起始offset
+        uint32_t rawSize;               // 解压后payload大小
+        uint32_t compressedSize;        // 压缩后payload大小
 
-        uint32_t payload_crc32;          // 压缩后payload CRC
-        uint32_t header_crc32;           // BlockHeader CRC，计算时本字段置0
+        uint32_t payloadCrc32;          // 压缩后payload CRC
+        uint32_t headerCrc32;           // BlockHeader CRC，计算时本字段置0
 
-        uint32_t block_id;               // block编号，文件内递增
-        uint64_t file_offset;            // block在文件中的起始偏移，便于校验/恢复
+        uint32_t blockId;               // block编号，文件内递增
+        uint64_t fileOffset;            // block在文件中的起始偏移，便于校验/恢复
     };
 
     struct alignas(64) DataChannelHeader {
-        int32_t channel_id;             // channel编号
-        uint32_t record_count;           // 本channel在block内的记录数
+        int32_t channelId;             // channel编号
+        uint32_t recordCount;           // 本channel在block内的记录数
 
-        int64_t seq_begin;              // 本block内该channel最小seq
-        int64_t seq_end;                // 本block内该channel最大seq
+        int64_t seqBegin;              // 本block内该channel最小seq
+        int64_t seqEnd;                // 本block内该channel最大seq
 
-        int64_t ts_begin_ns;            // block最小时间戳
-        int64_t ts_end_ns;              // block最大时间戳
+        int64_t tsBeginNs;            // block最小时间戳
+        int64_t tsEndNs;              // block最大时间戳
 
         uint8_t reserved[24];
     };
@@ -418,6 +418,24 @@ namespace marketdata {
     static_assert(sizeof(DataFileHeader)   == 64, "FileHeader size mismatch");
     static_assert(sizeof(DataBlockHeader)  == 64, "BlockHeader size mismatch");
     static_assert(sizeof(DataChannelHeader)== 64, "ChannelHeader size mismatch");
+
+    // 回放发布消息：原始逐笔与“处理该逐笔之后”的 LOB snapshot 原子绑定。
+    // shard_seq 是单个 SHM shard 内连续序号。
+    struct MDMergeData
+    {
+        uint8_t dataType; // MixedRecordType
+        uint8_t reserved[5];
+        uint16_t shardId;
+        uint64_t shardSeq;
+        union
+        {
+            Order order;
+            Trade trade;
+        };
+
+        MDRapidSnapshot rapidSnapshot;
+    };
+    static_assert(sizeof(MDMergeData) == 1168, "MDMergeData size mismatch");
 }
 
 #endif

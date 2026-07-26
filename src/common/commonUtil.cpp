@@ -23,10 +23,10 @@ bool isNaNOrInf(double value)
 }
 
 
-// YYYYMMDDHHMMSSsss获取HHMMSSsss
+// 获取HHMMSSsssnnnnnn 转为 HHMMSSsss
 long getMarketDataTime(long originalTime)
 {
-    return originalTime % 1000000000;  // 取后9位 HHMMSSsss
+    return originalTime / 1000000L;  // HHMMSSsss
 }
 
 // 解析单行CSV，返回字段列表（处理引号和内部逗号）
@@ -34,8 +34,8 @@ void parse_csv_line(const std::string &line, std::vector<std::string> &data)
 {
     data.clear();
 
-    std::string current_field;
-    bool in_quotes = false;
+    std::string currentField;
+    bool inQuotes = false;
     size_t n = line.size();
     for (size_t i = 0; i < n; ++i)
     {
@@ -43,29 +43,29 @@ void parse_csv_line(const std::string &line, std::vector<std::string> &data)
         if (ch == '"')
         {
             // 双引号转义: "" -> "
-            if (in_quotes && i + 1 < n && line[i + 1] == '"')
+            if (inQuotes && i + 1 < n && line[i + 1] == '"')
             {
-                current_field.push_back('"');
+                currentField.push_back('"');
                 ++i;
             }
             else
             {
-                in_quotes = !in_quotes;
+                inQuotes = !inQuotes;
             }
         }
-        else if (ch == ',' && !in_quotes)
+        else if (ch == ',' && !inQuotes)
         {
             // 逗号作为分隔符
-            data.push_back(current_field);
-            current_field.clear();
+            data.push_back(currentField);
+            currentField.clear();
         }
         else
         {
             // 普通字符，直接添加到当前字段
-            current_field.push_back(ch);
+            currentField.push_back(ch);
         }
     }
-    data.push_back(current_field);
+    data.push_back(currentField);
 
     // 添加对最后一个字段末尾空白字符（包括换行符）的处理
     if (!data.empty()) {
@@ -78,5 +78,5 @@ void parse_csv_line(const std::string &line, std::vector<std::string> &data)
         }
     }
 
-    (void)in_quotes;
+    (void)inQuotes;
 }

@@ -37,12 +37,12 @@
    │  <code, T*>     │  按 security_code 路由到对应股票的 LOB
    │                 │
    │  共享对象池：    │
-   │  OrderPool      │  ←── LimitOrderBook / MatchingEngine 使用
+   │  OrderPool      │  ←── LimitOrderBook 使用
    └────────┬────────┘
             │ onOrderDetail / onTransaction → processOrder / processTrade
             ▼
    ┌──────────────────────────────────────────────────────────┐
-   │  LOB 实现（T 的三种选择）                                 │
+   │  LOB 实现                                                 │
    └──────────────────────────────────────────────────────────┘
 ```
 
@@ -53,8 +53,6 @@
 | 类名                       | 定位                                   | 订单深度 | 对象池      | 节点类型        |
 |----------------------------|----------------------------------------|----------|-------------|-----------------|
 | `LimitOrderBook`           | 成交消除订单簿 + 更精准的模拟撮合订单簿 | 有       | `OrderPool` | `OrderNode`     |
-| `LimitOrderBookLite`       | 无订单深度的成交消除订单簿             | 无       | 无          | `OrderLiteMeta` |
-| `MatchingEngine`           | 用户订单模拟撮合引擎                   | 有       | `OrderPool` | `OrderNode`     |
 
 > **"有订单深度"**：每个价格档位维护一条双向链表，可以精确追踪每笔委托的 id、volume、排队位置（time priority）。
 > **"无订单深度"**：只记录每个价格档位的总挂单量（total_volume）和委托数（order_size），内存占用更小。
@@ -63,12 +61,11 @@
 
 ## 成交消除订单簿（LimitOrderBook / LimitOrderBookLite）
 
-`LimitOrderBook` 和 `LimitOrderBookLite` 的共同目标是基于逐笔委托和逐笔成交做成交消除，还原市场订单簿。
+`LimitOrderBook` 目标是基于逐笔委托和逐笔成交做成交消除，还原市场订单簿。
 
 其中：
 
 - `LimitOrderBook` 除了真实簿子的成交消除结果，还额外维护一套更精准的模拟撮合状态，可用于输出撮合后的订单簿视角。
-- `LimitOrderBookLite` 只保留价格档位聚合信息，不维护逐笔订单深度。
 
 ```
 processOrder(MDOrder)            processTrade(MDTrade)
@@ -115,14 +112,6 @@ PriceLevel（价格档位）  [NodePool.h]
 PriceBook<Comp>  [PriceBook.h]
   └─ levels: map<price, PriceLevel, Comp>
              买盘 Comp=greater，卖盘 Comp=less
-```
-
-### LimitOrderBookLite 差异
-
-```
-无 OrderPool，无 OrderNode 链表
-id_meta_map: unordered_map<id, OrderLiteMeta{price, remaining_volume}>
-PriceLevel: 只有 order_size + total_volume（无链表指针）
 ```
 
 ---
@@ -236,13 +225,7 @@ Workers 内部使用 `SpscRingBuffer`（主线程写、worker 线程读）。容
 ```cpp
 // Workers
 using WorkersLimitOrderBook           = Workers<marketdata::LimitOrderBook>;
-using WorkersLimitOrderBookLite       = Workers<marketdata::LimitOrderBookLite>;
-using WorkersMatchingEngine = Workers<marketdata::MatchingEngine>;
 
-// LOBGroup
-using LOBGroupLimitOrderBook           = LOBGroup<marketdata::LimitOrderBook>;
-using LOBGroupLimitOrderBookLite       = LOBGroup<marketdata::LimitOrderBookLite>;
-using LOBGroupMatchingEngine = LOBGroup<marketdata::MatchingEngine>;
 ```
 
 ---
@@ -254,7 +237,6 @@ using LOBGroupMatchingEngine = LOBGroup<marketdata::MatchingEngine>;
 | `NodePool.h`                      | `MarketOrderType`, `OrderNode`, `PriceLevel`, `OrderPool`    |
 | `PriceBook.h`                     | `PriceBook<Comp>`, `PriceBookGreat`, `PriceBookLess`         |
 | `LimitOrderBook.h`                | 成交消除订单簿（有深度），并维护更精准的模拟撮合订单簿状态，依赖 `OrderPool` |
-| `LimitOrderBookLite.h`            | 无订单深度的成交消除订单簿，`OrderLiteMeta`                   |
 | `MatchingEngine.h`                | 用户订单模拟撮合引擎，`TradingPhase`, `MatchRecord`           |
 | `LOBGroup.h`                      | 按 security_code 管理多只股票的 LOB 容器                      |
 | `RingBuffer.h`                    | `SpscRingBuffer`, `MpmcRingBuffer`                           |
@@ -304,4 +286,4 @@ id `11473527` 已发生价格相交，但直到同一 id 才完成成交。
 
 ## MatchingEngine说明
 
-模拟撮合需要还原深交所逐笔委托，如市价单具体类型，MatchingEngine与实际落地有所区别，未更新至最新代码，以及原始深交所逐笔委托代码片段也未上传，提交本代码主要补充简历用
+模拟撮合需要还原深交所逐笔委托，如市价单具体类型，MatchingEngine与实际落地有所区别，未更新至最新代码

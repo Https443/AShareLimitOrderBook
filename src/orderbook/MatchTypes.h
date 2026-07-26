@@ -4,6 +4,8 @@
 
 namespace marketdata
 {
+namespace orderbook
+{
     enum class ExchangeType : uint8_t
     {
         UNKNOWN = 0,
@@ -33,13 +35,15 @@ namespace marketdata
     // 模拟成交记录
     struct MatchRecord
     {
-        int64_t match_id = 0;
+        char side = '-';
         int32_t exchange = 0;
-        int64_t bid_order_id = 0;
-        int64_t offer_order_id = 0;
+        int32_t channelNo = 0;
+        int64_t matchId = 0;
+        int64_t bidOrderId = 0;
+        int64_t offerOrderId = 0;
         int64_t price = 0;
         int64_t volume = 0;
         int64_t datetime = 0;
-        char side = '-';
     };
+}
 }

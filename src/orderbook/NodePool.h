@@ -6,6 +6,8 @@
 
 namespace marketdata
 {
+namespace orderbook
+{
     enum class OrderSideType : uint8_t
     {
         BUY = 0,                // 买
@@ -30,10 +32,10 @@ namespace marketdata
     // 价格档位
     struct PriceLevel
     {
-        static constexpr uint32_t INVALID_SLOT = std::numeric_limits<uint32_t>::max();
+        static constexpr uint32_t kInvalidSlot = std::numeric_limits<uint32_t>::max();
 
         // 是否在使用
-        bool is_use = false;
+        bool isUse = false;
         // 已被撮合
         bool matched = false;
         // 占位
@@ -42,63 +44,63 @@ namespace marketdata
         int64_t price = -1;
 
         // 首订单节点指针
-        uint32_t head_slot = INVALID_SLOT;
+        uint32_t headSlot = kInvalidSlot;
         // 尾订单节点指针
-        uint32_t tail_slot = INVALID_SLOT;
+        uint32_t tailSlot = kInvalidSlot;
         // 总委托量
-        int64_t total_volume = 0;
+        int64_t totalVolume = 0;
         // 撮合后的总委托量
-        int64_t match_total_volume = 0;
+        int64_t matchTotalVolume = 0;
         // 委托数量
-        int32_t order_size = 0;
+        int32_t orderSize = 0;
         // 撮合后的委托数量
-        int32_t match_order_size = 0;
+        int32_t matchOrderSize = 0;
 
         void reset()
         {
-            is_use = false;
+            isUse = false;
             matched = false;
             price = -1;
-            head_slot = INVALID_SLOT;
-            tail_slot = INVALID_SLOT;
-            total_volume = 0;
-            match_total_volume = 0;
-            order_size = 0;
-            match_order_size = 0;
+            headSlot = kInvalidSlot;
+            tailSlot = kInvalidSlot;
+            totalVolume = 0;
+            matchTotalVolume = 0;
+            orderSize = 0;
+            matchOrderSize = 0;
         }
 
         bool empty() const
         {
-            return head_slot == INVALID_SLOT;
+            return headSlot == kInvalidSlot;
         }
 
         void resetMatchStatus()
         {
             matched = false;
-            match_total_volume = total_volume;
-            match_order_size = order_size;
+            matchTotalVolume = totalVolume;
+            matchOrderSize = orderSize;
         }
     };
 
     // 订单节点
     struct OrderNode
     {
-        static constexpr uint32_t INVALID_SLOT = std::numeric_limits<uint32_t>::max();
+        static constexpr uint32_t kInvalidSlot = std::numeric_limits<uint32_t>::max();
 
-        bool is_use = false;
+        bool isUse = false;
         // 委托方向
-        OrderSideType side_type = OrderSideType::NONE;
+        OrderSideType sideType = OrderSideType::NONE;
         // 委托类型
-        MarketOrderType order_type = MarketOrderType::NONE;
+        MarketOrderType orderType = MarketOrderType::NONE;
         // 已撮合完成
         bool matched = false;
 
         // 当前订单slot
-        uint32_t self_slot = INVALID_SLOT;
+        uint32_t selfSlot = kInvalidSlot;
         // 前一个订单节点slot
-        uint32_t prev_slot = INVALID_SLOT;
+        uint32_t prevSlot = kInvalidSlot;
         // 后一个订单节点slot
-        uint32_t next_slot = INVALID_SLOT;
+        uint32_t nextSlot = kInvalidSlot;
 
         // id
         int64_t id = -1;
@@ -107,152 +109,152 @@ namespace marketdata
         // 委托量
         int64_t volume = -1;
         // 剩余委托量
-        int64_t remaining_match_volume = -1;
+        int64_t remainingMatchVolume = -1;
         // 委托时间
         int64_t time = -1;
 
         // 订单节点所在的价格档位指针
-        PriceLevel *price_level_ptr = nullptr;
+        PriceLevel *priceLevelPtr = nullptr;
 
         void reset()
         {
-            is_use = false;
-            side_type = OrderSideType::NONE;
-            order_type = MarketOrderType::NONE;
+            isUse = false;
+            sideType = OrderSideType::NONE;
+            orderType = MarketOrderType::NONE;
             matched = false;
             id = -1;
             price = -1;
             volume = -1;
-            remaining_match_volume = -1;
+            remainingMatchVolume = -1;
             time = -1;
-            prev_slot = INVALID_SLOT;
-            next_slot = INVALID_SLOT;
-            price_level_ptr = nullptr;
+            prevSlot = kInvalidSlot;
+            nextSlot = kInvalidSlot;
+            priceLevelPtr = nullptr;
         }
 
         void resetMatchStatus()
         {
             matched = false;
-            remaining_match_volume = volume;
+            remainingMatchVolume = volume;
         }
     };
 
     class OrderIdIndex
     {
     public:
-        static constexpr uint32_t INVALID_SLOT = OrderNode::INVALID_SLOT;
-        static constexpr size_t TABLE_CAPACITY = 1u << 25;   // 按需要调整，必须是2的幂
+        static constexpr uint32_t kInvalidSlot = OrderNode::kInvalidSlot;
+        static constexpr size_t kTableCapacity = 1u << 25;   // 按需要调整，必须是2的幂
 
         struct Entry
         {
-            int64_t order_id = -1;
-            uint32_t slot = INVALID_SLOT;
+            int64_t orderId = -1;
+            uint32_t slot = kInvalidSlot;
             uint8_t state = 0; // 0-empty, 1-used, 2-tombstone
         };
 
         void init()
         {
             clear();
-            mask = TABLE_CAPACITY - 1;
+            m_mask = kTableCapacity - 1;
         }
 
-        bool insert(int64_t order_id, uint32_t slot)
+        bool insert(int64_t orderId, uint32_t slot)
         {
-            if ((size_ + 1) * 10 >= TABLE_CAPACITY * 7)
+            if ((m_size + 1) * 10 >= kTableCapacity * 7)
             {
-                LOG_ERROR(app_log::logger(), "OrderIdIndex load factor too high, size:{}, capacity:{}", size_, TABLE_CAPACITY);
+                LOG_ERROR(app_log::logger(), "OrderIdIndex load factor too high, size:{}, capacity:{}", m_size, kTableCapacity);
                 return false;
             }
 
-            size_t idx = hash(order_id) & mask;
-            size_t first_tombstone = TABLE_CAPACITY;
+            size_t idx = hash(orderId) & m_mask;
+            size_t firstTombstone = kTableCapacity;
 
             for (;;)
             {
-                Entry& e = table[idx];
+                Entry& e = m_table[idx];
 
                 if (e.state == 0)
                 {
-                    size_t target = (first_tombstone != TABLE_CAPACITY) ? first_tombstone : idx;
-                    table[target].order_id = order_id;
-                    table[target].slot = slot;
-                    table[target].state = 1;
-                    ++size_;
+                    size_t target = (firstTombstone != kTableCapacity) ? firstTombstone : idx;
+                    m_table[target].orderId = orderId;
+                    m_table[target].slot = slot;
+                    m_table[target].state = 1;
+                    ++m_size;
                     return true;
                 }
 
                 if (e.state == 2)
                 {
-                    if (first_tombstone == TABLE_CAPACITY)
+                    if (firstTombstone == kTableCapacity)
                     {
-                        first_tombstone = idx;
+                        firstTombstone = idx;
                     }
                 }
-                else if (e.order_id == order_id)
+                else if (e.orderId == orderId)
                 {
                     return false;
                 }
 
-                idx = (idx + 1) & mask;
+                idx = (idx + 1) & m_mask;
             }
         }
 
-        bool find(int64_t order_id, uint32_t& slot) const
+        bool find(int64_t orderId, uint32_t& slot) const
         {
-            size_t idx = hash(order_id) & mask;
+            size_t idx = hash(orderId) & m_mask;
 
             for (;;)
             {
-                const Entry& e = table[idx];
+                const Entry& e = m_table[idx];
 
                 if (e.state == 0)
                 {
                     return false;
                 }
 
-                if (e.state == 1 && e.order_id == order_id)
+                if (e.state == 1 && e.orderId == orderId)
                 {
                     slot = e.slot;
                     return true;
                 }
 
-                idx = (idx + 1) & mask;
+                idx = (idx + 1) & m_mask;
             }
         }
 
-        bool erase(int64_t order_id)
+        bool erase(int64_t orderId)
         {
-            size_t idx = hash(order_id) & mask;
+            size_t idx = hash(orderId) & m_mask;
 
             for (;;)
             {
-                Entry& e = table[idx];
+                Entry& e = m_table[idx];
 
                 if (e.state == 0)
                 {
                     return false;
                 }
 
-                if (e.state == 1 && e.order_id == order_id)
+                if (e.state == 1 && e.orderId == orderId)
                 {
                     e.state = 2;
-                    e.slot = INVALID_SLOT;
-                    --size_;
+                    e.slot = kInvalidSlot;
+                    --m_size;
                     return true;
                 }
 
-                idx = (idx + 1) & mask;
+                idx = (idx + 1) & m_mask;
             }
         }
 
         void clear()
         {
-            for (size_t i = 0; i < TABLE_CAPACITY; ++i)
+            for (size_t i = 0; i < kTableCapacity; ++i)
             {
-                table[i] = Entry{};
+                m_table[i] = Entry{};
             }
-            size_ = 0;
-            mask = TABLE_CAPACITY - 1;
+            m_size = 0;
+            m_mask = kTableCapacity - 1;
         }
 
     private:
@@ -267,9 +269,9 @@ namespace marketdata
             return v;
         }
 
-        Entry table[TABLE_CAPACITY];
-        size_t mask = TABLE_CAPACITY - 1;
-        size_t size_ = 0;
+        Entry m_table[kTableCapacity];
+        size_t m_mask = kTableCapacity - 1;
+        size_t m_size = 0;
     };
 
     /**
@@ -283,8 +285,8 @@ namespace marketdata
         // 选近十年逐笔最多数据的进行测试
         // 20250827共487643713条数据，最高占pool size 15411861
         // 20251231共362069115条数据，最高占pool size 12856644
-        static constexpr size_t MAX_ORDER = 16'000'000;
-        static constexpr uint32_t INVALID_SLOT = OrderNode::INVALID_SLOT;
+        static constexpr size_t kMaxOrder = 16'000'000;
+        static constexpr uint32_t kInvalidSlot = OrderNode::kInvalidSlot;
 
         /**
          * @brief 构造函数，初始化内存池
@@ -292,76 +294,76 @@ namespace marketdata
          */
         OrderPool()
         {
-            for (uint32_t i = 0; i < MAX_ORDER; ++i)
+            for (uint32_t i = 0; i < kMaxOrder; ++i)
             {
-                nodes[i].self_slot = i;
-                nodes[i].reset();
-                free_stack[i] = static_cast<uint32_t>(MAX_ORDER - 1 - i);
+                m_nodes[i].selfSlot = i;
+                m_nodes[i].reset();
+                m_freeStack[i] = static_cast<uint32_t>(kMaxOrder - 1 - i);
             }
-            free_top = static_cast<uint32_t>(MAX_ORDER);
-            id_index.init();
+            m_freeTop = static_cast<uint32_t>(kMaxOrder);
+            m_idIndex.init();
         }
 
         /**
          * @brief 从内存池分配一个节点
          * @return 节点指针，池耗尽返回nullptr
          */
-        OrderNode* alloc(int64_t order_id)
+        OrderNode* alloc(int64_t orderId)
         {
-            if (free_top == 0) [[unlikely]]
+            if (m_freeTop == 0) [[unlikely]]
             {
-                LOG_ERROR(app_log::logger(), "OrderPool: out of max size:{}", MAX_ORDER);
+                LOG_ERROR(app_log::logger(), "OrderPool: out of max size:{}", kMaxOrder);
                 return nullptr;
             }
 
-            uint32_t exist_slot = INVALID_SLOT;
-            if (id_index.find(order_id, exist_slot)) [[unlikely]]
+            uint32_t existSlot = kInvalidSlot;
+            if (m_idIndex.find(orderId, existSlot)) [[unlikely]]
             {
-                LOG_ERROR(app_log::logger(), "OrderPool: duplicated order id:{}", order_id);
+                LOG_ERROR(app_log::logger(), "OrderPool: duplicated order id:{}", orderId);
                 return nullptr;
             }
 
-            const uint32_t slot = free_stack[--free_top];
-            OrderNode& node = nodes[slot];
+            const uint32_t slot = m_freeStack[--m_freeTop];
+            OrderNode& node = m_nodes[slot];
             node.reset();
-            node.is_use = true;
-            node.id = order_id;
+            node.isUse = true;
+            node.id = orderId;
 
-            if (!id_index.insert(order_id, slot)) [[unlikely]]
+            if (!m_idIndex.insert(orderId, slot)) [[unlikely]]
             {
-                free_stack[free_top++] = slot;
+                m_freeStack[m_freeTop++] = slot;
                 node.reset();
-                LOG_ERROR(app_log::logger(), "OrderPool: failed to insert id index, id:{}", order_id);
+                LOG_ERROR(app_log::logger(), "OrderPool: failed to insert id index, id:{}", orderId);
                 return nullptr;
             }
 
-            ++count;
-            if (count > max_count)
+            ++m_count;
+            if (m_count > m_maxCount)
             {
-                max_count = count;
+                m_maxCount = m_count;
             }
 
             return &node;
         }
 
-        OrderNode* find(int64_t order_id)
+        OrderNode* find(int64_t orderId)
         {
-            uint32_t slot = INVALID_SLOT;
-            if (!id_index.find(order_id, slot))
+            uint32_t slot = kInvalidSlot;
+            if (!m_idIndex.find(orderId, slot))
             {
                 return nullptr;
             }
-            return &nodes[slot];
+            return &m_nodes[slot];
         }
 
-        const OrderNode* find(int64_t order_id) const
+        const OrderNode* find(int64_t orderId) const
         {
-            uint32_t slot = INVALID_SLOT;
-            if (!id_index.find(order_id, slot))
+            uint32_t slot = kInvalidSlot;
+            if (!m_idIndex.find(orderId, slot))
             {
                 return nullptr;
             }
-            return &nodes[slot];
+            return &m_nodes[slot];
         }
 
         /**
@@ -372,22 +374,22 @@ namespace marketdata
         void free(OrderNode* p)
         {
             if (!p) return;
-            if (!p->is_use) return;
+            if (!p->isUse) return;
 
-            if (p->price_level_ptr != nullptr)
+            if (p->priceLevelPtr != nullptr)
             {
                 unlink(p);
             }
 
-            id_index.erase(p->id);
-            const uint32_t slot = p->self_slot;
+            m_idIndex.erase(p->id);
+            const uint32_t slot = p->selfSlot;
             p->reset();
-            p->self_slot = slot;
-            free_stack[free_top++] = slot;
+            p->selfSlot = slot;
+            m_freeStack[m_freeTop++] = slot;
 
-            if (count > 0)
+            if (m_count > 0)
             {
-                --count;
+                --m_count;
             }
         }
 
@@ -401,30 +403,30 @@ namespace marketdata
         {
             assert(level != nullptr);
             assert(node != nullptr);
-            assert(node->is_use);
+            assert(node->isUse);
 
-            const uint32_t slot = node->self_slot;
-            node->prev_slot = level->tail_slot;
-            node->next_slot = INVALID_SLOT;
+            const uint32_t slot = node->selfSlot;
+            node->prevSlot = level->tailSlot;
+            node->nextSlot = kInvalidSlot;
 
-            if (level->tail_slot == INVALID_SLOT)
+            if (level->tailSlot == kInvalidSlot)
             {
-                level->head_slot = slot;
-                level->tail_slot = slot;
+                level->headSlot = slot;
+                level->tailSlot = slot;
             }
             else
             {
-                nodes[level->tail_slot].next_slot = slot;
-                level->tail_slot = slot;
+                m_nodes[level->tailSlot].nextSlot = slot;
+                level->tailSlot = slot;
             }
 
-            level->total_volume += node->volume;
-            level->match_total_volume = level->total_volume;
+            level->totalVolume += node->volume;
+            level->matchTotalVolume = level->totalVolume;
 
-            ++level->order_size;
-            level->match_order_size = level->order_size;
+            ++level->orderSize;
+            level->matchOrderSize = level->orderSize;
 
-            node->price_level_ptr = level;
+            node->priceLevelPtr = level;
         }
 
         /**
@@ -436,91 +438,92 @@ namespace marketdata
         {
             assert(node != nullptr);
 
-            if (node->price_level_ptr == nullptr)
+            if (node->priceLevelPtr == nullptr)
             {
                 return;
             }
 
-            PriceLevel *level = node->price_level_ptr;
-            const uint32_t prev = node->prev_slot;
-            const uint32_t next = node->next_slot;
+            PriceLevel *level = node->priceLevelPtr;
+            const uint32_t prev = node->prevSlot;
+            const uint32_t next = node->nextSlot;
 
             // 将当前OrderNode的next指针赋值给 前一个OrderNode的next指针
-            if (prev != INVALID_SLOT)
+            if (prev != kInvalidSlot)
             {
-                nodes[prev].next_slot = next;
+                m_nodes[prev].nextSlot = next;
             }
 
             // 将当前OrderNode的prev指针赋值给 下一个OrderNode的prev指针
-            if (next != INVALID_SLOT)
+            if (next != kInvalidSlot)
             {
-                nodes[next].prev_slot = prev;
+                m_nodes[next].prevSlot = prev;
             }
 
             // 如果当前OrderNode位于队列的头，则将下一个OrderNode设置为队列头
-            if (level->head_slot == node->self_slot)
+            if (level->headSlot == node->selfSlot)
             {
-                level->head_slot = next;
+                level->headSlot = next;
             }
 
             // 如果当前OrderNode位于队列的尾，则将前一个OrderNode设置为队列尾
-            if (level->tail_slot == node->self_slot)
+            if (level->tailSlot == node->selfSlot)
             {
-                level->tail_slot = prev;
+                level->tailSlot = prev;
             }
 
             // 修改总volume
-            level->total_volume -= node->volume;
-            --level->order_size;
-            
-            node->prev_slot = INVALID_SLOT;
-            node->next_slot = INVALID_SLOT;
+            level->totalVolume -= node->volume;
+            --level->orderSize;
 
-            node->price_level_ptr = nullptr;
+            node->prevSlot = kInvalidSlot;
+            node->nextSlot = kInvalidSlot;
+
+            node->priceLevelPtr = nullptr;
         }
 
         void reset()
         {
-            for (uint32_t i = 0; i < MAX_ORDER; ++i)
+            for (uint32_t i = 0; i < kMaxOrder; ++i)
             {
-                nodes[i].self_slot = i;
-                nodes[i].reset();
-                free_stack[i] = static_cast<uint32_t>(MAX_ORDER - 1 - i);
+                m_nodes[i].selfSlot = i;
+                m_nodes[i].reset();
+                m_freeStack[i] = static_cast<uint32_t>(kMaxOrder - 1 - i);
             }
-            free_top = static_cast<uint32_t>(MAX_ORDER);
-            id_index.clear();
-            count = 0;
-            max_count = 0;
+            m_freeTop = static_cast<uint32_t>(kMaxOrder);
+            m_idIndex.clear();
+            m_count = 0;
+            m_maxCount = 0;
         }
 
         /** @brief 获取当前已分配节点数 */
         size_t getCount() const
         {
-            return count;
+            return m_count;
         }
 
         /** @brief 获取历史最大已分配节点数 */
         size_t getMaxCount() const
         {
-            return max_count;
+            return m_maxCount;
         }
 
         OrderNode* getBySlot(uint32_t slot)
         {
-            return (slot < MAX_ORDER) ? &nodes[slot] : nullptr;
+            return (slot < kMaxOrder) ? &m_nodes[slot] : nullptr;
         }
 
         const OrderNode* getBySlot(uint32_t slot) const
         {
-            return (slot < MAX_ORDER) ? &nodes[slot] : nullptr;
+            return (slot < kMaxOrder) ? &m_nodes[slot] : nullptr;
         }
 
     private:
-        OrderNode nodes[MAX_ORDER];
-        uint32_t free_stack[MAX_ORDER];
-        uint32_t free_top = 0;
-        size_t count = 0;
-        size_t max_count = 0;
-        OrderIdIndex id_index;
+        OrderNode m_nodes[kMaxOrder];
+        uint32_t m_freeStack[kMaxOrder];
+        uint32_t m_freeTop = 0;
+        size_t m_count = 0;
+        size_t m_maxCount = 0;
+        OrderIdIndex m_idIndex;
     };
+}
 }

@@ -34,7 +34,7 @@ std::filesystem::path config_root_for(const std::filesystem::path& config_path) 
 
 quill::PatternFormatterOptions make_formatter() {
     return quill::PatternFormatterOptions(
-        "%(time) [%(log_level)] <%(short_source_location):%(caller_function)> %(message)",
+        "%(time) [%(log_level)] [%(thread_id)] [%(short_source_location):%(caller_function)] %(message)",
         "%Y-%m-%d %H:%M:%S.%Qns",
         quill::Timezone::LocalTime,
         true,
