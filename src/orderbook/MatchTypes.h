@@ -13,6 +13,16 @@ namespace orderbook
         SZ
     };
 
+    enum class MarketType : uint8_t
+    {
+        MAIN,
+        CYB,
+        KCB,
+        ETF,
+        CONVERTIBLE_BOND,
+        NONE,
+    };
+
     enum class PriceCageMode : uint8_t
     {
         DISABLED = 0,

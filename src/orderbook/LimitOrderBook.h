@@ -22,6 +22,7 @@
 #include "NodePool.h"
 #include "PriceBook.h"
 #include "PriceCage.h"
+#include "SecurityCode.h"
 
 namespace marketdata
 {
@@ -34,6 +35,7 @@ namespace orderbook
         int32_t sellTick;
     };
 
+    // TODO 沪市 ETF/可转债 14:57–15:00 仍按收盘集合竞价处理
     class LimitOrderBook
     {
     public:
@@ -47,11 +49,17 @@ namespace orderbook
                                 const int64_t preClosePrice,
                                 const int64_t minPrice,
                                 const int64_t maxPrice):
-            m_date(date), m_code(code), m_exchange(exchange), m_pool(poolPtr),
+            m_date(date), 
+            m_code(code), 
+            m_exchange(exchange),
+            m_marketType(findMarketType(exchange, code)),
+            m_minTicket((m_marketType == MarketType::ETF || m_marketType == MarketType::CONVERTIBLE_BOND) ? 1000 : 10000),
+            m_pool(poolPtr),
+            m_buyBook(minPrice, maxPrice, m_minTicket, code),
+            m_sellBook(minPrice, maxPrice, m_minTicket, code),
             m_preClosePrice(preClosePrice),
-            m_buyBook(minPrice, maxPrice, 10000, code),
-            m_sellBook(minPrice, maxPrice, 10000, code),
-            m_limitupPrice(maxPrice), m_limitdownPrice(minPrice),
+            m_limitupPrice(maxPrice), 
+            m_limitdownPrice(minPrice),
             m_matchTick{-1, -1}
         {
             if (!m_pool)
@@ -73,14 +81,13 @@ namespace orderbook
             // 全面注册制+主板价格笼子
             // 主板、科创板、创业板均改外超过价格笼子即废单处理 （佐证材料：“当委托进入交易系统时，如果其价格超过有效价格范围或价格限制，该委托将被视为无效。”——引自证监会）
 
-            if (((date >= "20200612" && !code.empty() && code[0] == '3' && exchange == 0)) ||
-                (code.size() >= 2 && code[0] == '6' && code[1] == '8' && exchange == 1))
+            if ((date >= "20200612" && m_marketType == MarketType::CYB) || m_marketType == MarketType::KCB)
             {
                 LOG_INFO(app_log::logger(), "enable price cage, date:{} code:{}", date, code);
                 m_priceCageEnabled = true;
                 m_priceCageAmain = false;
             }
-            else if (date >= "20230410")
+            else if (date >= "20230410" && m_marketType == MarketType::MAIN)
             {
                 LOG_INFO(app_log::logger(), "enable all price cage, date:{} code:{}", date, code);
                 m_priceCageEnabled = true;
@@ -838,7 +845,7 @@ namespace orderbook
                 }
 
                 // 撮合完成后，检查盘口是否变更，如果盘口变更则需要检查是否有价格入笼
-                if (currentBuyPrice != buyPrice || currentSellPrice != sellPrice)
+                if (m_priceCageEnabled && (currentBuyPrice != buyPrice || currentSellPrice != sellPrice))
                 {
                     m_matchPriceCage.set(buyPrice, sellPrice, m_matchLastPrice);
                     int64_t buyBasePrice = m_matchPriceCage.getBuyBasePrice();
@@ -1358,6 +1365,10 @@ namespace orderbook
                 const double middlePrice =
                     (static_cast<double>(finalistMinPrice) / 1000000.0 +
                      static_cast<double>(finalistMaxPrice) / 1000000.0) / 2.0;
+                if (m_marketType == MarketType::ETF || m_marketType == MarketType::CONVERTIBLE_BOND)
+                {
+                    return static_cast<int64_t>(std::llround(roundTo(middlePrice, 3) * 1000000));
+                }
                 return static_cast<int64_t>(std::llround(roundTo(middlePrice, 2) * 1000000));
             }
             if (m_currentExchange == ExchangeType::SZ)
@@ -1563,6 +1574,12 @@ namespace orderbook
         }
 
     private:
+        std::string m_date;
+        std::string m_code;
+        uint8_t m_exchange;
+        const MarketType m_marketType;
+        int64_t m_minTicket;
+        
         // unordered_map<id, pending_volume> 乱序订单
         std::unordered_map<int64_t, int64_t> m_pendingTrade;
         // 对象池
@@ -1592,20 +1609,15 @@ namespace orderbook
         bool m_matchStatusReset = false;
 
         // 模拟撮合
-        int64_t m_matchIdCounter = 0;  // 撮合自增id
         int64_t m_matchLastPrice = 0;  // 撮合 最新价
         int64_t m_matchVolumes = 0; // 撮合总量
         int64_t m_matchTurnover = 0; // 撮合总金额
         ExchangeType m_currentExchange = ExchangeType::UNKNOWN; // 市场
-        MatchCallback m_matchCallback = nullptr; // 回调指针
         PriceCage m_matchPriceCage; // 撮合 价格笼子
         std::unordered_set<PriceLevel*> m_matchChangedPriceLevels; // 撮合期间修改的PriceLevel指针
         std::unordered_set<uint32_t> m_matchChangedOrderNodeSlots; // 撮合期间修改的OrderNode的Slot
 
         TradingPhase m_currentPhase = TradingPhase::PRE_OPEN;
-        uint8_t m_exchange;
-        std::string m_date = "";
-        std::string m_code = "";
     };
 
 }

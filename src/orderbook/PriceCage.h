@@ -22,6 +22,8 @@ class PriceCage
 
         inline void set(int64_t buyBestPrice, int64_t sellBestPrice, int64_t lastPrice)
         {
+            if (!m_preClosePrice && !m_amain)
+                return;
             m_buyBestPrice = buyBestPrice;
             m_sellBestPrice = sellBestPrice;
             m_lastPrice = lastPrice;

@@ -247,7 +247,7 @@ price -> tick = (price - minPrice) / tickSize
 
 `PriceCage` 内部为实现百分比和分位舍入，会暂时将微元转换为 `double`，按两位小数四舍五入后再转回微元；订单簿的价量状态本身仍以整数保存。修改边界计算时，应补充精度边界测试，避免浮点中间值改变一分的舍入结果。
 
-`LimitOrderBook` 何时开启价格笼子由构造参数决定：当前代码对 2020-06-12 起的深市 `3xxxxx`、以及上交所 `68xxxx` 开启非主板规则；其他证券从 2023-04-10 起开启主板规则。连续竞价时，`checkAndMovePendingOrders()` 会调用 `PriceLevelBook::refreshBestByCage()`：
+`LimitOrderBook` 通过 `SecurityCode.h` 的代码分类函数决定何时开启价格笼子：深市创业板从 2020-06-12 起、沪市科创板开启非主板规则；沪深主板从 2023-04-10 起开启主板规则。ETF、可转债和其他证券不会因首字符相同而误开股票价格笼子。连续竞价时，`checkAndMovePendingOrders()` 会调用 `PriceLevelBook::refreshBestByCage()`：
 
 - 笼内档位成为 `bestTick`，用于快照和后续撮合视图；
 - 最靠近笼子边界的笼外档位记入 `cageTick`；
